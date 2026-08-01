@@ -1,0 +1,10 @@
+# These files are authored on Windows but executed inside Linux containers.
+# CRLF endings would make the kernel fail the shebang with a confusing
+# "no such file or directory" / "exec format error".
+*.sh              text eol=lf
+docker-entrypoint text eol=lf
+Dockerfile        text eol=lf
+Caddyfile         text eol=lf
+*.yml             text eol=lf
+*.yaml            text eol=lf
+.env.example      text eol=lf

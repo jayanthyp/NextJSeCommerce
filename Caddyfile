@@ -1,0 +1,106 @@
+# =============================================================================
+#  Caddy 2 — TLS + reverse proxy for the single-VPS commerce stack
+#
+#  Domains come from .env via the compose `environment:` block, so this file
+#  never needs editing:
+#      {$STORE_DOMAIN}      -> storefront:3000   (apex)
+#      www.{$STORE_DOMAIN}  -> 301 to apex
+#      {$API_DOMAIN}        -> backend:9000      (Store API, Admin API, /app)
+#
+#  Certificates are obtained and renewed automatically over the ACME HTTP-01
+#  challenge. That requires all three A records to resolve to this host and
+#  ports 80/443 to be open BEFORE the first `up`.
+#
+#  While iterating against an IP or an un-pointed domain, set
+#  CADDY_LOCAL_CERTS=local_certs in .env to use self-signed certificates
+#  instead of spending Let's Encrypt's duplicate-certificate quota (5/week).
+# =============================================================================
+
+{
+	email {$ACME_EMAIL}
+
+	# Toggled from .env. Empty (the default) means automatic public
+	# certificates; the literal string `local_certs` switches every site to
+	# Caddy's internal CA.
+	#
+	# It lives here as a global option rather than as a per-site `tls` directive
+	# because an empty `tls` line is a parse error, whereas an empty global
+	# option line is simply ignored.
+	{$CADDY_LOCAL_CERTS}
+
+	# Keep the admin API off the network; nothing here needs it.
+	admin off
+
+	servers {
+		# Caddy is the only thing in front of the apps, so it is the trusted
+		# source of client IPs.
+		trusted_proxies static private_ranges
+	}
+}
+
+# --- shared snippets --------------------------------------------------------
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options    "nosniff"
+		Referrer-Policy           "strict-origin-when-cross-origin"
+		X-Frame-Options           "SAMEORIGIN"
+		-Server
+	}
+}
+
+# --- www -> apex ------------------------------------------------------------
+
+www.{$STORE_DOMAIN} {
+	redir https://{$STORE_DOMAIN}{uri} permanent
+}
+
+# --- storefront -------------------------------------------------------------
+
+{$STORE_DOMAIN} {
+	import security_headers
+
+	encode zstd gzip
+
+	# Next.js emits immutable, content-hashed asset filenames.
+	@static path /_next/static/* /favicon.ico /images/*
+	header @static Cache-Control "public, max-age=31536000, immutable"
+
+	reverse_proxy storefront:3000 {
+		# Not `/` — it 307s through the region-redirect middleware, and
+		# Caddy's active health checker doesn't carry cookies across
+		# requests the way a browser does, so it would flap unhealthy.
+		# /api/health bypasses that middleware (see middleware.ts's matcher).
+		health_uri /api/health
+		health_interval 30s
+		health_timeout 5s
+	}
+}
+
+# --- Medusa backend + Admin dashboard --------------------------------------
+
+{$API_DOMAIN} {
+	import security_headers
+
+	encode zstd gzip
+
+	# Admin product-image uploads go through here; the default 10MB body limit
+	# is too small for real product photography.
+	request_body {
+		max_size 25MB
+	}
+
+	# Uploaded files served by the File Local provider are immutable.
+	@uploads path /static/*
+	header @uploads Cache-Control "public, max-age=604800"
+
+	reverse_proxy backend:9000 {
+		health_uri /health
+		health_interval 30s
+		health_timeout 5s
+
+		# Admin dashboard streams long-running workflow responses.
+		flush_interval -1
+	}
+}

@@ -1,0 +1,35 @@
+# secrets
+.env
+*.pem
+
+# template clones (re-created by scripts/bootstrap.sh)
+.templates/
+.npm-cache/
+
+# database dumps
+backups/
+
+# node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# build output
+.medusa/
+.next/
+dist/
+build/
+
+# playwright e2e output (storefront/tests/e2e)
+playwright-report/
+test-results/
+blob-report/
+
+# os / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude Code session state, not project source
+.claude/

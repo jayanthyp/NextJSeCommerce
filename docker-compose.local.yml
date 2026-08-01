@@ -1,0 +1,57 @@
+# =============================================================================
+#  Local development overlay
+#
+#  Layered on top of docker-compose.yml — never used alone:
+#      docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+#
+#  Deliberately NOT named docker-compose.override.yml: Compose loads that file
+#  automatically, so a checkout on the VPS would silently pick up these
+#  loosened limits and published database ports.
+#
+#  Differences from production:
+#    - application ports are published to the host (production publishes none
+#      except Caddy's 80/443)
+#    - Postgres and Redis are reachable from Windows for psql / redis-cli / a
+#      GUI client
+#    - Caddy is parked behind a profile: there are no public domains to get
+#      certificates for, so the browser talks to the apps directly
+#    - the backend cap is raised, because seeding and heavy Admin use are
+#      spikier than the steady-state serving the 4GB budget was tuned for
+# =============================================================================
+
+services:
+  # Host ports are overridable because a dev machine usually already has a
+  # Postgres or Redis bound to the default port from another project. The
+  # container-side ports never change, so nothing inside the stack cares.
+  postgres:
+    ports:
+      - "127.0.0.1:${LOCAL_PG_PORT:-5433}:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:${LOCAL_REDIS_PORT:-6379}:6379"
+
+  backend:
+    ports:
+      - "9000:9000"
+    environment:
+      # Verbose logs are worth the noise locally.
+      LOG_LEVEL: debug
+      NODE_OPTIONS: --max-old-space-size=1536
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.00"
+
+  storefront:
+    ports:
+      - "3000:3000"
+
+  # Parked behind a profile so a plain `up -d` skips it. Nothing here has a
+  # public domain, so Caddy would spend its time failing ACME challenges.
+  # Start it deliberately with `--profile proxy` if you want to test the
+  # reverse-proxy layer (set CADDY_LOCAL_CERTS=local_certs first).
+  caddy:
+    profiles:
+      - proxy
