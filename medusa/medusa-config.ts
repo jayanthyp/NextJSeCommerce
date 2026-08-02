@@ -80,9 +80,19 @@ module.exports = defineConfig({
   },
 
   admin: {
-    // Bundled into this container and served at ${BACKEND_URL}/app.
+    // Bundled into this container and served at /app on the SAME origin as
+    // the API — so backendUrl is deliberately left unset rather than baked
+    // to BACKEND_URL. @medusajs/admin-bundler defaults an unset backendUrl
+    // to "" (relative paths against whatever origin actually served /app),
+    // which is what lets one built image work correctly behind localhost,
+    // a Cloudflare tunnel, or the real VPS domain without a rebuild. Baking
+    // in an absolute URL here previously meant the compiled Admin bundle
+    // always tried to call back to whatever origin was set at BUILD time —
+    // fine by coincidence when testing via localhost:9000 (the default),
+    // broken ("Failed to fetch") the moment Admin was reached through any
+    // other origin, since the browser would try to reach that OTHER
+    // origin's own localhost:9000, not the tunnel/domain actually in use.
     disable: process.env.DISABLE_MEDUSA_ADMIN === "true",
-    backendUrl: BACKEND_URL,
   },
 
   modules: [

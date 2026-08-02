@@ -1,0 +1,62 @@
+name: Deploy storefront to Vercel (UAT)
+
+# Only the storefront ships here — Vercel can't host the Medusa backend (no
+# persistent server, no Postgres/Redis), so this is deliberately scoped to
+# storefront/ only. See deploy-vps.yml for the backend.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "storefront/**"
+      - ".github/workflows/deploy-vercel.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-vercel
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      # Not secret on their own — an org/project ID is meaningless without
+      # the token above — hardcoded so VERCEL_TOKEN is the only repo secret
+      # anyone has to create.
+      VERCEL_ORG_ID: team_Kzc4GE3S69Imcygqo7bT1Nir
+      VERCEL_PROJECT_ID: prj_MGoeehQEVV61FCA5mKleM3rs2Vuj
+    defaults:
+      run:
+        # The `vercel link` done locally (storefront/.vercel/project.json)
+        # was run from this directory — every vercel CLI command below has
+        # to run from here too, or it won't find the linked project.
+        working-directory: storefront
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      # Pulls the project's build settings AND the NEXT_PUBLIC_* /
+      # MEDUSA_BACKEND_URL environment variables already configured on the
+      # Vercel project (Settings -> Environment Variables) — nothing about
+      # the backend URL or publishable key needs to be duplicated as a
+      # GitHub secret here.
+      - name: Pull Vercel project settings
+        run: vercel pull --yes --environment=production
+
+      - name: Build
+        run: vercel build --prod
+
+      - name: Deploy prebuilt output
+        id: deploy
+        run: |
+          url=$(vercel deploy --prebuilt --prod)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        run: echo "Deployed to ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"

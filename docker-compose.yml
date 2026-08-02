@@ -98,6 +98,14 @@ services:
   # Migrations run from the entrypoint before the server binds.
   # ---------------------------------------------------------------------------
   backend:
+    # `image:` alongside `build:` is deliberate dual-mode: `docker compose
+    # build`/`up --build` (bootstrap.sh, local dev, a manual VPS deploy) still
+    # compiles from ./medusa exactly as before, tagging the result with this
+    # name — nothing about the existing workflow changes. A CI-driven deploy
+    # can instead `docker compose pull` this same tag, built once on GitHub's
+    # runners and pushed to GHCR by .github/workflows/deploy-vps.yml, so the
+    # VPS never has to spend its own limited RAM/CPU compiling the image.
+    image: ghcr.io/jayanthyp/nextjs-ecommerce-backend:latest
     build:
       context: ./medusa
       dockerfile: Dockerfile
@@ -148,6 +156,8 @@ services:
   # Changing one needs `docker compose build --no-cache storefront`.
   # ---------------------------------------------------------------------------
   storefront:
+    # See the `image:` comment on `backend`, above — same dual build/pull mode.
+    image: ghcr.io/jayanthyp/nextjs-ecommerce-storefront:latest
     build:
       context: ./storefront
       dockerfile: Dockerfile
