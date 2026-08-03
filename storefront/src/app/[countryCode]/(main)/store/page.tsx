@@ -2,10 +2,11 @@ import { Metadata } from "next"
 
 import { SortOptions } from "@modules/store/components/refinement-list/sort-products"
 import StoreTemplate from "@modules/store/templates"
+import { SITE_NAME } from "@lib/constants"
 
 export const metadata: Metadata = {
-  title: "Store",
-  description: "Explore all of our products.",
+  title: `Store | ${SITE_NAME}`,
+  description: `Explore all of our products at ${SITE_NAME}.`,
 }
 
 type Params = {

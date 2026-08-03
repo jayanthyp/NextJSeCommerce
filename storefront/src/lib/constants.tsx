@@ -5,6 +5,11 @@ import Ideal from "@modules/common/icons/ideal"
 import Bancontact from "@modules/common/icons/bancontact"
 import PayPal from "@modules/common/icons/paypal"
 
+// Single source of truth for the storefront's brand name — nav, footer,
+// checkout header, page <title>s, and account copy all import this rather
+// than hardcoding the name, so a rebrand is a one-line change.
+export const SITE_NAME = "Structura Crafts"
+
 /* Map of payment provider_id to their title and icon. Add in any payment providers you want to use. */
 export const paymentInfoMap: Record<
   string,
