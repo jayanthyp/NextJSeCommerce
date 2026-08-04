@@ -74,6 +74,17 @@ async function getCountryCode(
   try {
     let countryCode
 
+    // `CF-IPCountry` is injected by Cloudflare's proxy in front of this app
+    // in production — the actual geo-detection signal on this deployment.
+    // `x-vercel-ip-country` is Vercel's equivalent, kept as a fallback so
+    // this still works correctly on the Vercel-hosted UAT environment,
+    // which sits behind Vercel's edge network instead of Cloudflare's.
+    // Neither is present for a direct request (e.g. local dev), which is
+    // exactly when this should fall through to DEFAULT_REGION below.
+    const cloudflareCountryCode = request.headers
+      .get("cf-ipcountry")
+      ?.toLowerCase()
+
     const vercelCountryCode = request.headers
       .get("x-vercel-ip-country")
       ?.toLowerCase()
@@ -82,6 +93,8 @@ async function getCountryCode(
 
     if (urlCountryCode && regionMap.has(urlCountryCode)) {
       countryCode = urlCountryCode
+    } else if (cloudflareCountryCode && regionMap.has(cloudflareCountryCode)) {
+      countryCode = cloudflareCountryCode
     } else if (vercelCountryCode && regionMap.has(vercelCountryCode)) {
       countryCode = vercelCountryCode
     } else if (regionMap.has(DEFAULT_REGION)) {
