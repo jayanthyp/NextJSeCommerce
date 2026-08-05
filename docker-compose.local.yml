@@ -31,6 +31,13 @@ services:
     ports:
       - "127.0.0.1:${LOCAL_REDIS_PORT:-6379}:6379"
 
+  # Published directly for local dev since Caddy (which proxies /search in
+  # production) is parked behind the `proxy` profile by default — point
+  # NEXT_PUBLIC_SEARCH_ENDPOINT at http://localhost:7700 for local testing.
+  meilisearch:
+    ports:
+      - "127.0.0.1:${LOCAL_MEILI_PORT:-7700}:7700"
+
   backend:
     ports:
       - "9000:9000"

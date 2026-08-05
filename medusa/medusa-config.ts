@@ -15,6 +15,13 @@ const BACKEND_URL = process.env.MEDUSA_BACKEND_URL || "http://localhost:9000"
 // still works, you just read admin invites out of `docker compose logs`.
 const SMTP_ENABLED = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS)
 
+// Search is optional too. Without an admin key the plugin's loader throws at
+// boot ("Meilisearch API key is missing"), which would otherwise take the
+// whole app down just because search isn't configured yet — e.g. test/CI
+// environments that never set MEILISEARCH_ADMIN_KEY, matching the
+// storefront's own `searchEnabled` fallback for an unconfigured search key.
+const MEILISEARCH_ENABLED = Boolean(process.env.MEILISEARCH_ADMIN_KEY)
+
 const emailProvider = SMTP_ENABLED
   ? {
       resolve: "./src/modules/smtp-notification",
@@ -139,5 +146,52 @@ module.exports = defineConfig({
     // --- Site content -----------------------------------------------------
     { resolve: "./src/modules/homepage-carousel" },
     { resolve: "./src/modules/pages" },
+    { resolve: "./src/modules/reviews" },
+    { resolve: "./src/modules/wishlist" },
   ],
+
+  // Third-party packaged extensions (module + admin/api routes bundled
+  // together) live here, separate from first-party `modules`.
+  plugins: MEILISEARCH_ENABLED ? [
+    {
+      resolve: "@rokmohar/medusa-plugin-meilisearch",
+      options: {
+        config: {
+          host: process.env.MEILISEARCH_HOST || "http://meilisearch:7700",
+          // The plugin needs write access to index products, so this is the
+          // master/admin key — never the search-only key exposed to the
+          // storefront (that one lives purely in the storefront's own build
+          // config, this backend never sees it).
+          apiKey: process.env.MEILISEARCH_ADMIN_KEY || "",
+        },
+        settings: {
+          products: {
+            type: "products",
+            enabled: true,
+            fields: [
+              "id",
+              "title",
+              "description",
+              "handle",
+              "thumbnail",
+              "collection_title",
+              "variant_sku",
+            ],
+            indexSettings: {
+              searchableAttributes: ["title", "description", "variant_sku"],
+              displayedAttributes: [
+                "id",
+                "title",
+                "description",
+                "handle",
+                "thumbnail",
+              ],
+              filterableAttributes: ["collection_title"],
+            },
+            primaryKey: "id",
+          },
+        },
+      },
+    },
+  ] : [],
 })

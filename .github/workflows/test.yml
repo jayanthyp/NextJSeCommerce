@@ -80,6 +80,7 @@ jobs:
           REDIS_URL=redis://redis:6379
           JWT_SECRET=ci-jwt-secret
           COOKIE_SECRET=ci-cookie-secret
+          MEILI_MASTER_KEY=ci-meili-master-key-not-for-production
           MEDUSA_WORKER_MODE=shared
           MEDUSA_BACKEND_URL=http://localhost:9000
           MEDUSA_BACKEND_URL_INTERNAL=http://backend:9000
@@ -111,7 +112,19 @@ jobs:
       - name: Create a temp admin user to read the publishable key
         run: docker compose -f docker-compose.yml -f docker-compose.local.yml exec -T backend npx medusa user -e ci@test.local -p CiTestPassword123!
 
-      - name: Capture the publishable key and rebuild storefront with it
+      - name: Wait for the seeded products to reach the MeiliSearch index
+        run: |
+          for i in $(seq 1 30); do
+            count=$(curl -s http://localhost:7700/indexes/products/stats \
+              -H "Authorization: Bearer ci-meili-master-key-not-for-production" \
+              | node -pe 'JSON.parse(require("fs").readFileSync(0)).numberOfDocuments || 0')
+            echo "indexed documents: $count"
+            [ "$count" -gt 0 ] && exit 0
+            sleep 5
+          done
+          echo "MeiliSearch never indexed the seeded products" && exit 1
+
+      - name: Capture the publishable + search keys and rebuild storefront with them
         run: |
           TOKEN=$(curl -s -X POST http://localhost:9000/auth/user/emailpass \
             -H "Content-Type: application/json" \
@@ -121,6 +134,17 @@ jobs:
             -H "Authorization: Bearer $TOKEN" \
             | node -pe 'JSON.parse(require("fs").readFileSync(0)).api_keys[0].token')
           echo "NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=$KEY" >> .env
+
+          # MeiliSearch auto-generates a scoped "Default Search API Key" (actions:
+          # ["search"]) alongside the admin key when it boots with a master key —
+          # that's the one the browser-side search client is allowed to use, never
+          # the master key itself.
+          SEARCH_KEY=$(curl -s http://localhost:7700/keys \
+            -H "Authorization: Bearer ci-meili-master-key-not-for-production" \
+            | node -pe 'JSON.parse(require("fs").readFileSync(0)).results.find(k => JSON.stringify(k.actions) === JSON.stringify(["search"])).key')
+          echo "NEXT_PUBLIC_SEARCH_ENDPOINT=http://localhost:7700" >> .env
+          echo "NEXT_PUBLIC_SEARCH_API_KEY=$SEARCH_KEY" >> .env
+
           docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build storefront
 
       - name: Wait for storefront to be healthy

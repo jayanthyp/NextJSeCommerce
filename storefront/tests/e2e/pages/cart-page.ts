@@ -22,4 +22,20 @@ export class CartPage {
     await this.page.getByTestId("checkout-button").click()
     await this.page.waitForURL(/\/checkout\?step=address/)
   }
+
+  // --- Frequently bought together --------------------------------------------
+
+  frequentlyBoughtTogether() {
+    return this.page.getByTestId("frequently-bought-together")
+  }
+
+  async expectFrequentlyBoughtTogetherVisible() {
+    await expect(this.frequentlyBoughtTogether()).toBeVisible()
+  }
+
+  async addAllSuggestedToCart() {
+    const button = this.page.getByTestId("add-all-suggested-button")
+    await button.click()
+    await expect(button).toBeEnabled({ timeout: 15_000 })
+  }
 }

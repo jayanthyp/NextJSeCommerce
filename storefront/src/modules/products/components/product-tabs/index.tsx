@@ -6,20 +6,33 @@ import Refresh from "@modules/common/icons/refresh"
 
 import Accordion from "./accordion"
 import { HttpTypes } from "@medusajs/types"
+import ReviewsTab from "@modules/products/components/reviews"
+import { StoreReview } from "@lib/data/reviews"
 
 type ProductTabsProps = {
   product: HttpTypes.StoreProduct
+  reviews?: StoreReview[]
+  isLoggedIn?: boolean
 }
 
-const ProductTabs = ({ product }: ProductTabsProps) => {
+const ProductTabs = ({ product, reviews = [], isLoggedIn = false }: ProductTabsProps) => {
   const tabs = [
     {
       label: "Product Information",
+      testId: "product-info-accordion-item",
       component: <ProductInfoTab product={product} />,
     },
     {
       label: "Shipping & Returns",
+      testId: "shipping-info-accordion-item",
       component: <ShippingInfoTab />,
+    },
+    {
+      label: `Reviews (${reviews.length})`,
+      testId: "reviews-accordion-item",
+      component: (
+        <ReviewsTab productId={product.id} reviews={reviews} isLoggedIn={isLoggedIn} />
+      ),
     },
   ]
 
@@ -32,6 +45,7 @@ const ProductTabs = ({ product }: ProductTabsProps) => {
             title={tab.label}
             headingSize="medium"
             value={tab.label}
+            data-testid={tab.testId}
           >
             {tab.component}
           </Accordion.Item>

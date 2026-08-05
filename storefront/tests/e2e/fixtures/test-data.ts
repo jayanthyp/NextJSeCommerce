@@ -30,3 +30,15 @@ export function uniqueTestCustomer() {
     email: `e2e-${stamp}@example.com`,
   }
 }
+
+/** For specs that register+sign in a customer account (wishlist, reviews)
+ * rather than running the full checkout flow. */
+export function uniqueTestAccount() {
+  const stamp = Date.now()
+  return {
+    firstName: "Ada",
+    lastName: "Tester",
+    email: `e2e-account-${stamp}@example.com`,
+    password: "SuperSecret123!",
+  }
+}

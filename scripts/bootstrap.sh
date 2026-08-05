@@ -235,6 +235,7 @@ else
 	sed -i "s|CHANGEME_JWT_SECRET|$(openssl rand -hex 32)|"        .env
 	sed -i "s|CHANGEME_COOKIE_SECRET|$(openssl rand -hex 32)|"     .env
 	sed -i "s|CHANGEME_REVALIDATE_SECRET|$(openssl rand -hex 16)|" .env
+	sed -i "s|CHANGEME_MEILI_MASTER_KEY|$(openssl rand -hex 24)|"  .env
 
 	chmod 600 .env
 	log ".env written with generated secrets (mode 600)"

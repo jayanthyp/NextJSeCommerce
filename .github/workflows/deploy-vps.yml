@@ -118,6 +118,9 @@ jobs:
             NEXT_PUBLIC_BASE_URL=${{ vars.NEXT_PUBLIC_BASE_URL }}
             NEXT_PUBLIC_DEFAULT_REGION=${{ vars.NEXT_PUBLIC_DEFAULT_REGION }}
             NEXT_PUBLIC_GA4_MEASUREMENT_ID=${{ vars.NEXT_PUBLIC_GA4_MEASUREMENT_ID }}
+            NEXT_PUBLIC_SEARCH_ENDPOINT=${{ vars.NEXT_PUBLIC_SEARCH_ENDPOINT }}
+            NEXT_PUBLIC_SEARCH_API_KEY=${{ vars.NEXT_PUBLIC_SEARCH_API_KEY }}
+            NEXT_PUBLIC_SEARCH_INDEX_NAME=${{ vars.NEXT_PUBLIC_SEARCH_INDEX_NAME }}
           cache-from: type=gha,scope=storefront
           cache-to: type=gha,mode=max,scope=storefront
 

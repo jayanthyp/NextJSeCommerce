@@ -7,6 +7,7 @@ import { StoreRegion } from "@medusajs/types"
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
 import CartButton from "@modules/layout/components/cart-button"
 import CountrySelect from "@modules/layout/components/country-select"
+import SearchBar from "@modules/layout/components/search-bar"
 import SideMenu from "@modules/layout/components/side-menu"
 import ThemeToggle from "@modules/layout/components/theme-toggle"
 import { SITE_NAME } from "@lib/constants"
@@ -39,6 +40,9 @@ export default async function Nav() {
           </div>
 
           <div className="flex items-center gap-x-6 h-full flex-1 basis-0 justify-end">
+            <div className="flex items-center h-full">
+              <SearchBar />
+            </div>
             <div className="flex items-center h-full">
               <ThemeToggle />
             </div>

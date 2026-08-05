@@ -100,6 +100,17 @@ www.{$STORE_DOMAIN} {
 	@uploads path /static/*
 	header @uploads Cache-Control "public, max-age=604800"
 
+	# Public MeiliSearch access for the storefront's client-side search
+	# widget (react-instantsearch queries MeiliSearch directly from the
+	# browser, not through Medusa). Only ever reachable with the search-only
+	# scoped key baked into the storefront build — the master/admin key used
+	# for indexing (MEILISEARCH_ADMIN_KEY) never leaves the backend
+	# container. handle_path strips the /search prefix before proxying, so
+	# MeiliSearch itself sees normal unprefixed requests.
+	handle_path /search/* {
+		reverse_proxy meilisearch:7700
+	}
+
 	reverse_proxy backend:9000 {
 		health_uri /health
 		health_interval 30s

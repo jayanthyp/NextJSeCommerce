@@ -2,15 +2,18 @@ import ItemsTemplate from "./items"
 import Summary from "./summary"
 import EmptyCartMessage from "../components/empty-cart-message"
 import SignInPrompt from "../components/sign-in-prompt"
+import FrequentlyBoughtTogether from "../components/frequently-bought-together"
 import Divider from "@modules/common/components/divider"
 import { HttpTypes } from "@medusajs/types"
 
 const CartTemplate = ({
   cart,
   customer,
+  countryCode,
 }: {
   cart: HttpTypes.StoreCart | null
   customer: HttpTypes.StoreCustomer | null
+  countryCode: string
 }) => {
   return (
     <div className="py-12">
@@ -25,6 +28,7 @@ const CartTemplate = ({
                 </>
               )}
               <ItemsTemplate cart={cart} />
+              <FrequentlyBoughtTogether cart={cart} countryCode={countryCode} />
             </div>
             <div className="relative">
               <div className="flex flex-col gap-y-8 sticky top-12">

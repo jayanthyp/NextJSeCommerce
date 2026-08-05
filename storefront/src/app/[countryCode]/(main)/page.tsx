@@ -1,6 +1,7 @@
 import { Metadata } from "next"
 
 import Carousel from "@modules/home/components/carousel"
+import RecentlyViewed from "@modules/products/components/recently-viewed"
 import { SortOptions } from "@modules/store/components/refinement-list/sort-products"
 import StoreTemplate from "@modules/store/templates"
 import { SITE_NAME } from "@lib/constants"
@@ -30,6 +31,9 @@ export default async function Home(props: Params) {
     <>
       <Carousel />
       <StoreTemplate sortBy={sortBy} page={page} countryCode={countryCode} />
+      <div className="content-container">
+        <RecentlyViewed countryCode={countryCode} />
+      </div>
     </>
   )
 }

@@ -1,12 +1,15 @@
 # =============================================================================
-#  NextJSeCommerce — single 4GB VPS orchestration
+#  NextJSeCommerce — single VPS orchestration (confirmed 7.8GB RAM / 4 CPU —
+#  the original "4GB VPS" framing below undersold actual capacity, but the
+#  tight per-service caps stay in place regardless; there's just more
+#  headroom for `--build` and new services like meilisearch than assumed).
 #
 #  Memory budget (deploy.resources.limits, honoured by Compose V2 outside swarm)
-#    postgres     512M   redis  192M   backend 1024M
-#    storefront   512M   caddy   64M            = ~2.30G of hard caps
-#  Expected steady-state usage is ~1.3-1.6G, leaving headroom for `--build`.
+#    postgres     512M   redis  192M   backend 1024M   meilisearch 512M
+#    storefront   512M   caddy   64M                    = ~2.81G of hard caps
+#  Expected steady-state usage is ~1.6-1.9G, leaving headroom for `--build`.
 #
-#  Only Caddy publishes ports. Postgres and Redis are reachable exclusively on
+#  Only Caddy publishes ports. Everything else is reachable exclusively on
 #  the internal `commerce` bridge network.
 # =============================================================================
 
@@ -93,6 +96,36 @@ services:
           memory: 64M
 
   # ---------------------------------------------------------------------------
+  # MeiliSearch — typo-tolerant product search, indexed by the
+  # medusa-plugin-meilisearch module on product create/update/delete.
+  # Internal only, no published port — same posture as postgres/redis.
+  # ---------------------------------------------------------------------------
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      MEILI_ENV: production
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - meilidata:/meili_data
+    networks:
+      - commerce
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.50"
+        reservations:
+          memory: 128M
+
+  # ---------------------------------------------------------------------------
   # Medusa v2 engine — Store API + Admin API + bundled Admin dashboard (/app)
   # + background jobs, all in one process (MEDUSA_WORKER_MODE=shared).
   # Migrations run from the entrypoint before the server binds.
@@ -120,6 +153,8 @@ services:
       REDIS_URL: ${REDIS_URL}
       MEDUSA_WORKER_MODE: ${MEDUSA_WORKER_MODE:-shared}
       DISABLE_MEDUSA_ADMIN: "false"
+      MEILISEARCH_HOST: http://meilisearch:7700
+      MEILISEARCH_ADMIN_KEY: ${MEILI_MASTER_KEY}
       # Node's default heap target ignores cgroup limits; pin it under the cap.
       NODE_OPTIONS: --max-old-space-size=768
     expose:
@@ -133,6 +168,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      meilisearch:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9000/health || exit 1"]
@@ -167,6 +204,9 @@ services:
         NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL}
         NEXT_PUBLIC_DEFAULT_REGION: ${NEXT_PUBLIC_DEFAULT_REGION:-dk}
         NEXT_PUBLIC_GA4_MEASUREMENT_ID: ${NEXT_PUBLIC_GA4_MEASUREMENT_ID:-}
+        NEXT_PUBLIC_SEARCH_ENDPOINT: ${NEXT_PUBLIC_SEARCH_ENDPOINT:-}
+        NEXT_PUBLIC_SEARCH_API_KEY: ${NEXT_PUBLIC_SEARCH_API_KEY:-}
+        NEXT_PUBLIC_SEARCH_INDEX_NAME: ${NEXT_PUBLIC_SEARCH_INDEX_NAME:-products}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -178,6 +218,9 @@ services:
       NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}
       NEXT_PUBLIC_DEFAULT_REGION: ${NEXT_PUBLIC_DEFAULT_REGION:-dk}
       NEXT_PUBLIC_GA4_MEASUREMENT_ID: ${NEXT_PUBLIC_GA4_MEASUREMENT_ID:-}
+      NEXT_PUBLIC_SEARCH_ENDPOINT: ${NEXT_PUBLIC_SEARCH_ENDPOINT:-}
+      NEXT_PUBLIC_SEARCH_API_KEY: ${NEXT_PUBLIC_SEARCH_API_KEY:-}
+      NEXT_PUBLIC_SEARCH_INDEX_NAME: ${NEXT_PUBLIC_SEARCH_INDEX_NAME:-products}
       REVALIDATE_SECRET: ${REVALIDATE_SECRET}
       NODE_OPTIONS: --max-old-space-size=384
     expose:
@@ -251,6 +294,7 @@ networks:
 volumes:
   pgdata:
   redisdata:
+  meilidata:
   medusa_uploads:
   caddy_data:
   caddy_config:
