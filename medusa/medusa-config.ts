@@ -135,5 +135,9 @@ module.exports = defineConfig({
       resolve: "@medusajs/medusa/notification",
       options: { providers: [emailProvider] },
     },
+
+    // --- Site content -----------------------------------------------------
+    { resolve: "./src/modules/homepage-carousel" },
+    { resolve: "./src/modules/pages" },
   ],
 })

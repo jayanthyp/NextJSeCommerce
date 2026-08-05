@@ -1,15 +1,35 @@
-import { redirect } from "next/navigation"
+import { Metadata } from "next"
+
+import Carousel from "@modules/home/components/carousel"
+import { SortOptions } from "@modules/store/components/refinement-list/sort-products"
+import StoreTemplate from "@modules/store/templates"
+import { SITE_NAME } from "@lib/constants"
+
+export const metadata: Metadata = {
+  title: SITE_NAME,
+  description: `Explore all of our products at ${SITE_NAME}.`,
+}
+
+type Params = {
+  params: Promise<{ countryCode: string }>
+  searchParams: Promise<{
+    sortBy?: SortOptions
+    page?: string
+  }>
+}
 
 // The landing page IS the store: rather than duplicate StoreTemplate's
-// product-grid rendering here, this route just redirects to /store. That
-// keeps a single source of truth for "what does the product listing look
-// like" and — importantly — means every path that lands here (the bare "/"
-// redirect in middleware.ts, and the nav/footer logo links, which resolve to
-// this exact route via LocalizedClientLink) consistently reaches the real
-// catalog instead of only some of them.
-export default async function Home(props: {
-  params: Promise<{ countryCode: string }>
-}) {
+// product-grid rendering, this route renders the same component /store
+// renders, just with a carousel above it — a single source of truth for
+// "what does the product listing look like" (see store/page.tsx).
+export default async function Home(props: Params) {
   const { countryCode } = await props.params
-  redirect(`/${countryCode}/store`)
+  const { sortBy, page } = await props.searchParams
+
+  return (
+    <>
+      <Carousel />
+      <StoreTemplate sortBy={sortBy} page={page} countryCode={countryCode} />
+    </>
+  )
 }

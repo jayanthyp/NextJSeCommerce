@@ -6,6 +6,7 @@ import { getLocale } from "@lib/data/locale-actions"
 import { StoreRegion } from "@medusajs/types"
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
 import CartButton from "@modules/layout/components/cart-button"
+import CountrySelect from "@modules/layout/components/country-select"
 import SideMenu from "@modules/layout/components/side-menu"
 import { SITE_NAME } from "@lib/constants"
 
@@ -22,7 +23,7 @@ export default async function Nav() {
         <nav className="content-container txt-xsmall-plus text-ui-fg-subtle flex items-center justify-between w-full h-full text-small-regular">
           <div className="flex-1 basis-0 h-full flex items-center">
             <div className="h-full">
-              <SideMenu regions={regions} locales={locales} currentLocale={currentLocale} />
+              <SideMenu locales={locales} currentLocale={currentLocale} />
             </div>
           </div>
 
@@ -37,6 +38,11 @@ export default async function Nav() {
           </div>
 
           <div className="flex items-center gap-x-6 h-full flex-1 basis-0 justify-end">
+            {regions && (
+              <div className="flex items-center h-full">
+                <CountrySelect regions={regions} />
+              </div>
+            )}
             <div className="hidden small:flex items-center gap-x-6 h-full">
               <LocalizedClientLink
                 className="hover:text-ui-fg-base"

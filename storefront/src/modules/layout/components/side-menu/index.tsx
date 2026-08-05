@@ -6,9 +6,7 @@ import { Text, clx, useToggleState } from "@medusajs/ui"
 import { Fragment } from "react"
 
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
-import CountrySelect from "../country-select"
 import LanguageSelect from "../language-select"
-import { HttpTypes } from "@medusajs/types"
 import { Locale } from "@lib/data/locales"
 import { SITE_NAME } from "@lib/constants"
 
@@ -20,13 +18,11 @@ const SideMenuItems = {
 }
 
 type SideMenuProps = {
-  regions: HttpTypes.StoreRegion[] | null
   locales: Locale[] | null
   currentLocale: string | null
 }
 
-const SideMenu = ({ regions, locales, currentLocale }: SideMenuProps) => {
-  const countryToggleState = useToggleState()
+const SideMenu = ({ locales, currentLocale }: SideMenuProps) => {
   const languageToggleState = useToggleState()
 
   return (
@@ -108,24 +104,6 @@ const SideMenu = ({ regions, locales, currentLocale }: SideMenuProps) => {
                           />
                         </div>
                       )}
-                      <div
-                        className="flex justify-between"
-                        onMouseEnter={countryToggleState.open}
-                        onMouseLeave={countryToggleState.close}
-                      >
-                        {regions && (
-                          <CountrySelect
-                            toggleState={countryToggleState}
-                            regions={regions}
-                          />
-                        )}
-                        <ArrowRightMini
-                          className={clx(
-                            "transition-transform duration-150",
-                            countryToggleState.state ? "-rotate-90" : ""
-                          )}
-                        />
-                      </div>
                       <Text className="flex justify-between txt-compact-small">
                         © {new Date().getFullYear()} {SITE_NAME}. All rights
                         reserved.

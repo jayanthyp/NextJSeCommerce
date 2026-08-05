@@ -26,6 +26,10 @@
     "@medusajs/cli": "2.18.0",
     "@medusajs/framework": "2.18.0",
     "@medusajs/medusa": "2.18.0",
+    "@medusajs/ui": "latest",
+    "@tiptap/extension-link": "^3.29.2",
+    "@tiptap/react": "^3.29.2",
+    "@tiptap/starter-kit": "^3.29.2",
     "nodemailer": "^6.9.14"
   },
   "devDependencies": {
