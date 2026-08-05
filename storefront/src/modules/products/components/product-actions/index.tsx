@@ -2,6 +2,8 @@
 
 import { addToCart } from "@lib/data/cart"
 import { useIntersection } from "@lib/hooks/use-in-view"
+import { getProductPrice } from "@lib/util/get-product-price"
+import { trackAddToCart } from "@lib/util/analytics"
 import { HttpTypes } from "@medusajs/types"
 import { Button } from "@medusajs/ui"
 import Divider from "@modules/common/components/divider"
@@ -131,6 +133,23 @@ export default function ProductActions({
       quantity: 1,
       countryCode,
     })
+
+    const { variantPrice } = getProductPrice({
+      product,
+      variantId: selectedVariant.id,
+    })
+
+    if (variantPrice) {
+      trackAddToCart(
+        {
+          item_id: selectedVariant.id,
+          item_name: product.title,
+          price: variantPrice.calculated_price_number,
+          quantity: 1,
+        },
+        variantPrice.currency_code
+      )
+    }
 
     setIsAdding(false)
   }

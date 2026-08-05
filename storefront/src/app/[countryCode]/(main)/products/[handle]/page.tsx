@@ -3,6 +3,8 @@ import { notFound } from "next/navigation"
 import { listProducts } from "@lib/data/products"
 import { getRegion } from "@lib/data/regions"
 import ProductTemplate from "@modules/products/templates"
+import ProductJsonLd from "@modules/products/components/product-jsonld"
+import TrackViewItem from "@modules/products/components/track-view-item"
 import { HttpTypes } from "@medusajs/types"
 import { SITE_NAME } from "@lib/constants"
 
@@ -55,12 +57,20 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
     notFound()
   }
 
+  const description = product.description || product.subtitle || product.title
+
   return {
     title: `${product.title} | ${SITE_NAME}`,
-    description: `${product.title}`,
+    description,
     openGraph: {
       title: `${product.title} | ${SITE_NAME}`,
-      description: `${product.title}`,
+      description,
+      images: product.thumbnail ? [product.thumbnail] : [],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${product.title} | ${SITE_NAME}`,
+      description,
       images: product.thumbnail ? [product.thumbnail] : [],
     },
   }
@@ -89,11 +99,15 @@ export default async function ProductPage(props: Props) {
   }
 
   return (
-    <ProductTemplate
-      product={pricedProduct}
-      region={region}
-      countryCode={params.countryCode}
-      images={images}
-    />
+    <>
+      <ProductJsonLd product={pricedProduct} countryCode={params.countryCode} />
+      <TrackViewItem product={pricedProduct} />
+      <ProductTemplate
+        product={pricedProduct}
+        region={region}
+        countryCode={params.countryCode}
+        images={images}
+      />
+    </>
   )
 }

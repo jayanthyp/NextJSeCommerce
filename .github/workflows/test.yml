@@ -1,0 +1,164 @@
+name: Test
+
+# Runs on every push/PR for visibility, AND as a reusable workflow
+# (workflow_call) so deploy-vps.yml can `needs:` it — a red suite blocks
+# production deploys. GitHub Actions doesn't support `needs:` across
+# separate workflow files directly; workflow_call is the standard way to
+# make one workflow gate another.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call: {}
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: medusa
+          POSTGRES_PASSWORD: medusa_test_password
+          POSTGRES_DB: medusa_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U medusa"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: medusa
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: medusa/package-lock.json
+
+      - run: npm ci
+
+      - name: Run test database migrations
+        run: npx medusa db:migrate
+        env:
+          DATABASE_URL: postgres://medusa:medusa_test_password@localhost:5432/medusa_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-jwt-secret-not-for-production-use
+          COOKIE_SECRET: test-cookie-secret-not-for-production-use
+          STORE_CORS: http://localhost:3000
+          ADMIN_CORS: http://localhost:9000
+          AUTH_CORS: http://localhost:3000,http://localhost:9000
+
+      - run: npm run test:unit
+      - run: npm run test:integration:modules
+      - run: npm run test:integration:http
+
+  storefront-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate throwaway secrets for the local stack
+        run: |
+          cat > .env <<EOF
+          POSTGRES_USER=medusa
+          POSTGRES_PASSWORD=ci_test_password
+          POSTGRES_DB=medusa
+          REDIS_URL=redis://redis:6379
+          JWT_SECRET=ci-jwt-secret
+          COOKIE_SECRET=ci-cookie-secret
+          MEDUSA_WORKER_MODE=shared
+          MEDUSA_BACKEND_URL=http://localhost:9000
+          MEDUSA_BACKEND_URL_INTERNAL=http://backend:9000
+          STORE_CORS=http://localhost:3000,http://localhost:8000
+          ADMIN_CORS=http://localhost:9000
+          AUTH_CORS=http://localhost:3000,http://localhost:9000
+          NEXT_PUBLIC_MEDUSA_BACKEND_URL=http://localhost:9000
+          NEXT_PUBLIC_BASE_URL=http://localhost:3000
+          NEXT_PUBLIC_DEFAULT_REGION=dk
+          NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=
+          EOF
+
+      - name: Build and start the full local stack
+        run: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build postgres redis backend
+
+      - name: Wait for backend to be healthy
+        run: |
+          for i in $(seq 1 30); do
+            status=$(docker compose -f docker-compose.yml -f docker-compose.local.yml ps backend --format '{{.Status}}')
+            echo "$status"
+            echo "$status" | grep -q healthy && exit 0
+            sleep 5
+          done
+          echo "Backend never became healthy" && exit 1
+
+      - name: Seed the database
+        run: docker compose -f docker-compose.yml -f docker-compose.local.yml exec -T backend npx medusa exec ./src/scripts/seed.js
+
+      - name: Create a temp admin user to read the publishable key
+        run: docker compose -f docker-compose.yml -f docker-compose.local.yml exec -T backend npx medusa user -e ci@test.local -p CiTestPassword123!
+
+      - name: Capture the publishable key and rebuild storefront with it
+        run: |
+          TOKEN=$(curl -s -X POST http://localhost:9000/auth/user/emailpass \
+            -H "Content-Type: application/json" \
+            -d '{"email":"ci@test.local","password":"CiTestPassword123!"}' \
+            | node -pe 'JSON.parse(require("fs").readFileSync(0)).token')
+          KEY=$(curl -s http://localhost:9000/admin/api-keys?type=publishable \
+            -H "Authorization: Bearer $TOKEN" \
+            | node -pe 'JSON.parse(require("fs").readFileSync(0)).api_keys[0].token')
+          echo "NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=$KEY" >> .env
+          docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build storefront
+
+      - name: Wait for storefront to be healthy
+        run: |
+          for i in $(seq 1 30); do
+            status=$(docker compose -f docker-compose.yml -f docker-compose.local.yml ps storefront --format '{{.Status}}')
+            echo "$status"
+            echo "$status" | grep -q healthy && exit 0
+            sleep 5
+          done
+          echo "Storefront never became healthy" && exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: storefront/package-lock.json
+
+      - name: Install Playwright + browsers
+        working-directory: storefront
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        working-directory: storefront
+        run: npx playwright test
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: storefront/playwright-report/
+          retention-days: 7
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.local.yml down -v

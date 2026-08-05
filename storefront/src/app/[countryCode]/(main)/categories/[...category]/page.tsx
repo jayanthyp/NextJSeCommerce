@@ -35,7 +35,14 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
       title,
       description,
       alternates: {
-        canonical: `${params.category.join("/")}`,
+        // Was a bare relative path (e.g. "electronics") which resolves
+        // against metadataBase to the wrong URL, missing the
+        // /<countryCode>/categories/ prefix entirely.
+        canonical: `/${params.countryCode}/categories/${params.category.join("/")}`,
+      },
+      openGraph: {
+        title,
+        description,
       },
     }
   } catch (error) {

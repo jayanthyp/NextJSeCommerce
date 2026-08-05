@@ -33,12 +33,20 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
     notFound()
   }
 
-  const metadata = {
-    title: `${collection.title} | ${SITE_NAME}`,
-    description: `${collection.title} collection`,
-  } as Metadata
+  const title = `${collection.title} | ${SITE_NAME}`
+  const description = `${collection.title} collection`
 
-  return metadata
+  return {
+    title,
+    description,
+    alternates: {
+      canonical: `/${params.countryCode}/collections/${params.handle}`,
+    },
+    openGraph: {
+      title,
+      description,
+    },
+  }
 }
 
 export default async function CollectionPage(props: Props) {

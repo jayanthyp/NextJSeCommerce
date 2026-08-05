@@ -1,5 +1,6 @@
 import { retrieveOrder } from "@lib/data/orders"
 import OrderCompletedTemplate from "@modules/order/templates/order-completed-template"
+import TrackPurchase from "@modules/order/components/track-purchase"
 import { Metadata } from "next"
 import { notFound } from "next/navigation"
 
@@ -19,5 +20,10 @@ export default async function OrderConfirmedPage(props: Props) {
     return notFound()
   }
 
-  return <OrderCompletedTemplate order={order} />
+  return (
+    <>
+      <TrackPurchase order={order} />
+      <OrderCompletedTemplate order={order} />
+    </>
+  )
 }

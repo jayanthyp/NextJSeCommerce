@@ -117,18 +117,27 @@ jobs:
             NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY }}
             NEXT_PUBLIC_BASE_URL=${{ vars.NEXT_PUBLIC_BASE_URL }}
             NEXT_PUBLIC_DEFAULT_REGION=${{ vars.NEXT_PUBLIC_DEFAULT_REGION }}
+            NEXT_PUBLIC_GA4_MEASUREMENT_ID=${{ vars.NEXT_PUBLIC_GA4_MEASUREMENT_ID }}
           cache-from: type=gha,scope=storefront
           cache-to: type=gha,mode=max,scope=storefront
 
+  # Reusable workflow_call — cross-workflow-file `needs:` isn't otherwise
+  # possible in GitHub Actions, so this is how a red test suite blocks a
+  # production deploy. See test.yml for what actually runs.
+  test:
+    uses: ./.github/workflows/test.yml
+
   deploy:
-    needs: [build-backend, build-storefront]
+    needs: [build-backend, build-storefront, test]
     # Proceed as long as neither build actually FAILED — a job that was
     # correctly skipped (nothing relevant changed) shouldn't block deploying
-    # the other one that did.
+    # the other one that did. `test`, unlike the builds, is never skipped —
+    # it always has to pass.
     if: |
       always() && !cancelled() &&
       (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
-      (needs.build-storefront.result == 'success' || needs.build-storefront.result == 'skipped')
+      (needs.build-storefront.result == 'success' || needs.build-storefront.result == 'skipped') &&
+      needs.test.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: SSH in and run deploy.sh

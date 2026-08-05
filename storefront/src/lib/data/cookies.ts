@@ -87,3 +87,20 @@ export const removeCartId = async () => {
     maxAge: -1,
   })
 }
+
+export type ThemePreference = "light" | "dark" | "system"
+
+export const getTheme = async (): Promise<ThemePreference> => {
+  const cookies = await nextCookies()
+  const value = cookies.get("_medusa_theme")?.value
+  return value === "light" || value === "dark" ? value : "system"
+}
+
+export const setThemeCookie = async (theme: ThemePreference) => {
+  const cookies = await nextCookies()
+  cookies.set("_medusa_theme", theme, {
+    maxAge: 60 * 60 * 24 * 365,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  })
+}

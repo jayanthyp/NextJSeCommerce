@@ -89,7 +89,7 @@ const CountrySelect = ({ regions }: CountrySelectProps) => {
       <ListboxOptions
         transition
         anchor="bottom end"
-        className="max-h-[442px] overflow-y-scroll z-[900] bg-white drop-shadow-md text-small-regular text-black no-scrollbar rounded-rounded min-w-[280px] mt-2 transition duration-150 ease-in data-[closed]:opacity-0 data-[closed]:-translate-y-1"
+        className="max-h-[442px] overflow-y-scroll z-[900] bg-white dark:bg-ui-bg-base drop-shadow-md text-small-regular text-black dark:text-ui-fg-base no-scrollbar rounded-rounded min-w-[280px] mt-2 transition duration-150 ease-in data-[closed]:opacity-0 data-[closed]:-translate-y-1"
         data-testid="region-switcher-options"
       >
         {options?.map((o, index) => {

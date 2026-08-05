@@ -2,6 +2,15 @@
 @import "tailwindcss/components";
 @import "tailwindcss/utilities";
 
+@layer base {
+  /* Establishes the page canvas itself as theme-aware — individual
+     components below still need their own dark: companions for any
+     hardcoded bg-white/text-black literals, this only fixes the base. */
+  body {
+    @apply bg-ui-bg-base text-ui-fg-base;
+  }
+}
+
 @layer utilities {
   /* Chrome, Safari and Opera */
   .no-scrollbar::-webkit-scrollbar {
