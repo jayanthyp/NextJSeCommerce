@@ -13,14 +13,17 @@ const AddAllButton = ({ variantIds }: { variantIds: string[] }) => {
   const handleAddAll = async () => {
     setIsAdding(true)
     try {
-      // allSettled, not all: one out-of-stock suggestion shouldn't block
-      // adding the rest, and a rejection here would otherwise leave
-      // isAdding stuck true forever (no catch to reach setIsAdding(false)).
-      await Promise.allSettled(
-        variantIds.map((variantId) =>
-          addToCart({ variantId, quantity: 1, countryCode })
+      // Sequential, not Promise.all: concurrent createLineItem calls against
+      // the *same* cart race on Medusa's optimistic-concurrency cart version
+      // and can stall well past a reasonable UI timeout under constrained
+      // resources (observed hanging in CI). One at a time avoids the race;
+      // a failed add (e.g. one suggestion out of stock) still lets the rest
+      // through since each iteration is caught independently.
+      for (const variantId of variantIds) {
+        await addToCart({ variantId, quantity: 1, countryCode }).catch(
+          () => void 0
         )
-      )
+      }
     } finally {
       setIsAdding(false)
     }
