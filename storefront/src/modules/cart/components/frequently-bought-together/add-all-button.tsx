@@ -12,12 +12,18 @@ const AddAllButton = ({ variantIds }: { variantIds: string[] }) => {
 
   const handleAddAll = async () => {
     setIsAdding(true)
-    await Promise.all(
-      variantIds.map((variantId) =>
-        addToCart({ variantId, quantity: 1, countryCode })
+    try {
+      // allSettled, not all: one out-of-stock suggestion shouldn't block
+      // adding the rest, and a rejection here would otherwise leave
+      // isAdding stuck true forever (no catch to reach setIsAdding(false)).
+      await Promise.allSettled(
+        variantIds.map((variantId) =>
+          addToCart({ variantId, quantity: 1, countryCode })
+        )
       )
-    )
-    setIsAdding(false)
+    } finally {
+      setIsAdding(false)
+    }
   }
 
   return (
