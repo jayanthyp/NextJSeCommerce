@@ -15,6 +15,7 @@ import {
 } from "./cookies"
 import { getRegion } from "./regions"
 import { getLocale } from "@lib/data/locale-actions"
+import { captureMarketingConsent } from "@lib/data/marketing-consent"
 
 /**
  * Retrieves a cart by its ID. If no ID is provided, it will use the cart ID from the cookies.
@@ -377,6 +378,12 @@ export async function setAddresses(currentState: unknown, formData: FormData) {
         phone: formData.get("billing_address.phone"),
       }
     await updateCart(data)
+
+    if (formData.get("marketing_consent") === "on" && data.email) {
+      // Fire-and-forget: never let a MailerLite/consent-capture hiccup
+      // block checkout from proceeding.
+      captureMarketingConsent(data.email as string).catch(() => null)
+    }
   } catch (e: any) {
     return e.message
   }

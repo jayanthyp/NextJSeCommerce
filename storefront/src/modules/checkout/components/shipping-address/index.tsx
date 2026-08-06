@@ -31,6 +31,7 @@ const ShippingAddress = ({
     "shipping_address.phone": cart?.shipping_address?.phone || "",
     email: cart?.email || "",
   })
+  const [marketingConsent, setMarketingConsent] = useState(false)
 
   const countriesInRegion = useMemo(
     () => cart?.region?.countries?.map((c) => c.iso_2),
@@ -212,6 +213,15 @@ const ShippingAddress = ({
           value={formData["shipping_address.phone"]}
           onChange={handleChange}
           data-testid="shipping-phone-input"
+        />
+      </div>
+      <div className="mb-4">
+        <Checkbox
+          label="Email me about new arrivals and offers"
+          name="marketing_consent"
+          checked={marketingConsent}
+          onChange={() => setMarketingConsent((c) => !c)}
+          data-testid="marketing-consent-checkbox"
         />
       </div>
     </>

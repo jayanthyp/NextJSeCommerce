@@ -22,6 +22,32 @@ const SMTP_ENABLED = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS)
 // storefront's own `searchEnabled` fallback for an unconfigured search key.
 const MEILISEARCH_ENABLED = Boolean(process.env.MEILISEARCH_ADMIN_KEY)
 
+// Google sign-in is optional too — the OAuth app is a manual step in the
+// Google Cloud Console, so this stays off (email/password only) until real
+// credentials exist. Once the `auth` module is configured at all, Medusa
+// stops registering emailpass implicitly, so it has to be listed explicitly
+// alongside google below.
+const GOOGLE_AUTH_ENABLED = Boolean(
+  process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+)
+
+const authProviders = [
+  { resolve: "@medusajs/medusa/auth-emailpass", id: "emailpass" },
+  ...(GOOGLE_AUTH_ENABLED
+    ? [
+        {
+          resolve: "@medusajs/medusa/auth-google",
+          id: "google",
+          options: {
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            callbackUrl: `${process.env.MEDUSA_BACKEND_URL || "http://localhost:9000"}/auth/customer/google/callback`,
+          },
+        },
+      ]
+    : []),
+]
+
 const emailProvider = SMTP_ENABLED
   ? {
       resolve: "./src/modules/smtp-notification",
@@ -143,11 +169,22 @@ module.exports = defineConfig({
       options: { providers: [emailProvider] },
     },
 
+    // --- Auth -------------------------------------------------------------
+    {
+      resolve: "@medusajs/medusa/auth",
+      options: { providers: authProviders },
+    },
+
     // --- Site content -----------------------------------------------------
     { resolve: "./src/modules/homepage-carousel" },
     { resolve: "./src/modules/pages" },
     { resolve: "./src/modules/reviews" },
     { resolve: "./src/modules/wishlist" },
+
+    // --- Retention & marketing --------------------------------------------
+    { resolve: "./src/modules/abandoned-cart-tracking" },
+    { resolve: "./src/modules/back-in-stock-request" },
+    { resolve: "./src/modules/marketing-consent" },
   ],
 
   // Third-party packaged extensions (module + admin/api routes bundled

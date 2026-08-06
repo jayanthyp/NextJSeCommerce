@@ -127,6 +127,30 @@ export async function login(_currentState: unknown, formData: FormData) {
   }
 }
 
+/**
+ * Kicks off third-party sign-in. `sdk.auth.login` returns a `{ location }`
+ * redirect response for OAuth providers instead of a token — the caller
+ * redirect()s the browser there, and the flow completes at
+ * /auth/callback/google (a route outside [countryCode]: Google's OAuth app
+ * needs one fixed, exactly-matching redirect URI, which a locale-prefixed
+ * path can't reliably provide as more regions are added).
+ */
+export async function loginWithOAuth(provider: "google") {
+  const result = await sdk.auth.login("customer", provider, {})
+
+  if (typeof result === "object" && "location" in result) {
+    redirect(result.location)
+  }
+
+  // A string result here would mean the browser is already authenticated
+  // for this provider (unlikely on a fresh login click, but handle it
+  // rather than silently doing nothing).
+  if (typeof result === "string") {
+    await setAuthToken(result)
+    redirect("/account")
+  }
+}
+
 export async function signout(countryCode: string) {
   await sdk.auth.logout()
 

@@ -121,6 +121,7 @@ jobs:
             NEXT_PUBLIC_SEARCH_ENDPOINT=${{ vars.NEXT_PUBLIC_SEARCH_ENDPOINT }}
             NEXT_PUBLIC_SEARCH_API_KEY=${{ vars.NEXT_PUBLIC_SEARCH_API_KEY }}
             NEXT_PUBLIC_SEARCH_INDEX_NAME=${{ vars.NEXT_PUBLIC_SEARCH_INDEX_NAME }}
+            NEXT_PUBLIC_GOOGLE_AUTH_ENABLED=${{ vars.NEXT_PUBLIC_GOOGLE_AUTH_ENABLED }}
           cache-from: type=gha,scope=storefront
           cache-to: type=gha,mode=max,scope=storefront
 

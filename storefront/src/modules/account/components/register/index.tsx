@@ -8,6 +8,7 @@ import { SubmitButton } from "@modules/checkout/components/submit-button"
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
 import { signup } from "@lib/data/customer"
 import { SITE_NAME } from "@lib/constants"
+import GoogleLoginButton from "@modules/account/components/google-login-button"
 
 type Props = {
   setCurrentView: (view: LOGIN_VIEW) => void
@@ -90,6 +91,7 @@ const Register = ({ setCurrentView }: Props) => {
           Join
         </SubmitButton>
       </form>
+      <GoogleLoginButton />
       <span className="text-center text-ui-fg-base text-small-regular mt-6">
         Already a member?{" "}
         <button

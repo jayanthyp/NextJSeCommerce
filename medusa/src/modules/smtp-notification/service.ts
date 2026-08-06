@@ -182,6 +182,81 @@ class SmtpNotificationService extends AbstractNotificationProviderService {
         return { subject, html, text }
       }
 
+      case "abandoned-cart-1h":
+      case "abandoned-cart-24h":
+      case "abandoned-cart-3d": {
+        const copy = {
+          "abandoned-cart-1h": {
+            subject: "You left something in your cart",
+            heading: "Still thinking it over?",
+          },
+          "abandoned-cart-24h": {
+            subject: "Your cart is waiting for you",
+            heading: "Your items are still here",
+          },
+          "abandoned-cart-3d": {
+            subject: "Last chance — your cart expires soon",
+            heading: "Don't miss out",
+          },
+        }[notification.template]
+
+        const lines: string[] = Array.isArray(data.items)
+          ? data.items.map((item: any) => `${item.quantity} x ${item.title}`)
+          : []
+        const storeUrl = process.env.STORE_DOMAIN
+          ? `https://${process.env.STORE_DOMAIN}`
+          : "/"
+
+        const text = [
+          copy.heading,
+          ``,
+          ...(lines.length ? ["Items:", ...lines.map((l) => `  - ${l}`)] : []),
+          ``,
+          `Continue shopping: ${storeUrl}`,
+        ].join("\n")
+
+        const html = `
+          <div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:560px">
+            <h2 style="margin:0 0 16px">${copy.heading}</h2>
+            ${
+              lines.length
+                ? `<ul style="padding-left:18px">${lines
+                    .map((l) => `<li>${l}</li>`)
+                    .join("")}</ul>`
+                : ""
+            }
+            <p style="margin:16px 0 0">
+              <a href="${storeUrl}" style="color:#1a1a1a;font-weight:600">Continue shopping →</a>
+            </p>
+          </div>
+        `.trim()
+
+        return { subject: copy.subject, html, text }
+      }
+
+      case "back-in-stock": {
+        const storeUrl = process.env.STORE_DOMAIN
+          ? `https://${process.env.STORE_DOMAIN}`
+          : "/"
+        const subject = "Back in stock"
+        const text = [
+          `Good news — an item you wanted is back in stock.`,
+          ``,
+          `Shop now: ${storeUrl}`,
+        ].join("\n")
+        const html = `
+          <div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:560px">
+            <h2 style="margin:0 0 16px">Back in stock</h2>
+            <p style="margin:0 0 16px">Good news — an item you wanted is back in stock.</p>
+            <p style="margin:0">
+              <a href="${storeUrl}" style="color:#1a1a1a;font-weight:600">Shop now →</a>
+            </p>
+          </div>
+        `.trim()
+
+        return { subject, html, text }
+      }
+
       default: {
         const subject = `Notification: ${notification.template}`
         const text = JSON.stringify(data, null, 2)

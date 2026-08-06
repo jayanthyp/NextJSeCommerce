@@ -37,6 +37,14 @@ export class CheckoutPage {
     await this.page.waitForURL(/step=delivery/)
   }
 
+  marketingConsentCheckbox() {
+    return this.page.getByTestId("marketing-consent-checkbox")
+  }
+
+  async checkMarketingConsent() {
+    await this.marketingConsentCheckbox().click()
+  }
+
   // --- Step 2: delivery method ---------------------------------------------
 
   async selectDeliveryMethod(name: string) {

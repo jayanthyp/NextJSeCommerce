@@ -25,5 +25,16 @@ export default defineMiddlewares({
       method: "DELETE",
       middlewares: [authenticate("customer", ["session", "bearer"])],
     },
+    {
+      // NOT /store/marketing-consent — that route is deliberately public
+      // (captured during guest checkout, before any customer session exists).
+      matcher: "/store/back-in-stock-requests",
+      middlewares: [authenticate("customer", ["session", "bearer"])],
+    },
+    {
+      matcher: "/store/back-in-stock-requests/:id",
+      method: "DELETE",
+      middlewares: [authenticate("customer", ["session", "bearer"])],
+    },
   ],
 })
