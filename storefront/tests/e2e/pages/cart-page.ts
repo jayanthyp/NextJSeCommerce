@@ -36,6 +36,9 @@ export class CartPage {
   async addAllSuggestedToCart() {
     const button = this.page.getByTestId("add-all-suggested-button")
     await button.click()
-    await expect(button).toBeEnabled({ timeout: 15_000 })
+    // Adds are sequential (see add-all-button.tsx), so this is N Server
+    // Action round trips back to back, not one — 15s was too tight under
+    // CI's variable load and intermittently flaked here.
+    await expect(button).toBeEnabled({ timeout: 30_000 })
   }
 }
