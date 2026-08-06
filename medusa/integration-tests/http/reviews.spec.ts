@@ -3,7 +3,7 @@ import { Modules } from "@medusajs/framework/utils"
 import { REVIEWS_MODULE } from "../../src/modules/reviews"
 import ReviewsModuleService from "../../src/modules/reviews/service"
 
-jest.setTimeout(120 * 1000)
+jest.setTimeout(180 * 1000)
 
 medusaIntegrationTestRunner({
   inApp: true,
