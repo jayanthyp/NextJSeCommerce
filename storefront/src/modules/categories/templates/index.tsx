@@ -3,8 +3,9 @@ import { Suspense } from "react"
 
 import InteractiveLink from "@modules/common/components/interactive-link"
 import SkeletonProductGrid from "@modules/skeletons/templates/skeleton-product-grid"
-import RefinementList from "@modules/store/components/refinement-list"
-import { SortOptions } from "@modules/store/components/refinement-list/sort-products"
+import SortProducts, {
+  SortOptions,
+} from "@modules/store/components/refinement-list/sort-products"
 import PaginatedProducts from "@modules/store/templates/paginated-products"
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
 import { HttpTypes } from "@medusajs/types"
@@ -38,26 +39,28 @@ export default function CategoryTemplate({
 
   return (
     <div
-      className="flex flex-col small:flex-row small:items-start py-6 content-container"
+      className="flex flex-col small:items-start py-6 content-container"
       data-testid="category-container"
     >
-      <RefinementList sortBy={sort} data-testid="sort-by-container" />
       <div className="w-full">
-        <div className="flex flex-row mb-8 text-2xl-semi gap-4">
-          {parents &&
-            parents.map((parent) => (
-              <span key={parent.id} className="text-ui-fg-subtle">
-                <LocalizedClientLink
-                  className="mr-4 hover:text-black dark:hover:text-ui-fg-base"
-                  href={`/categories/${parent.handle}`}
-                  data-testid="sort-by-link"
-                >
-                  {parent.name}
-                </LocalizedClientLink>
-                /
-              </span>
-            ))}
-          <h1 data-testid="category-page-title">{category.name}</h1>
+        <div className="flex flex-row items-center justify-between mb-8 gap-4">
+          <div className="flex flex-row text-2xl-semi gap-4">
+            {parents &&
+              parents.map((parent) => (
+                <span key={parent.id} className="text-ui-fg-subtle">
+                  <LocalizedClientLink
+                    className="mr-4 hover:text-black dark:hover:text-ui-fg-base"
+                    href={`/categories/${parent.handle}`}
+                    data-testid="sort-by-link"
+                  >
+                    {parent.name}
+                  </LocalizedClientLink>
+                  /
+                </span>
+              ))}
+            <h1 data-testid="category-page-title">{category.name}</h1>
+          </div>
+          <SortProducts sortBy={sort} data-testid="sort-by-trigger" />
         </div>
         {category.description && (
           <div className="mb-8 text-base-regular">
