@@ -24,11 +24,25 @@ set -a; . ./.env; set +a
 
 [ -n "${MEILI_MASTER_KEY:-}" ] || { echo "[key] MEILI_MASTER_KEY not set in .env" >&2; exit 1; }
 
+# Parsing runs inside the backend container (has Node.js) rather than on the
+# host — the host toolchain is unknown (a bare VPS has no Node.js at all;
+# Windows dev machines have Node but often no jq), matching this repo's
+# existing "no host Node.js required" convention (see bootstrap.sh).
 KEY="$(docker compose exec -T meilisearch wget -qO- \
 	--header "Authorization: Bearer ${MEILI_MASTER_KEY}" \
-	http://127.0.0.1:7700/keys \
-	| node -pe 'JSON.parse(require("fs").readFileSync(0)).results.find(k => JSON.stringify(k.actions) === JSON.stringify(["search"])).key' \
-	2>/dev/null || true)"
+	http://127.0.0.1:7700/keys 2>/dev/null \
+	| docker compose exec -T backend node -e '
+		let data = "";
+		process.stdin.on("data", (chunk) => (data += chunk));
+		process.stdin.on("end", () => {
+			try {
+				const key = JSON.parse(data).results.find(
+					(k) => JSON.stringify(k.actions) === JSON.stringify(["search"])
+				)?.key;
+				if (key) process.stdout.write(key);
+			} catch {}
+		});
+	' 2>/dev/null || true)"
 
 if [ -z "$KEY" ] || [ "$KEY" = "undefined" ]; then
 	cat >&2 <<'EOF'
