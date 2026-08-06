@@ -64,7 +64,27 @@ jobs:
 
       - run: npm run test:unit
       - run: npm run test:integration:modules
-      - run: npm run test:integration:http
+
+      - name: Run HTTP integration tests
+        id: http_tests
+        run: npm run test:integration:http 2>&1 | tee /tmp/http-tests.log
+
+      # Surfaces the actual failure text as a check annotation (readable via
+      # the public REST API without a token) — the raw job log itself needs
+      # write/admin repo access to download, which isn't available for
+      # unauthenticated diagnosis.
+      - name: Surface HTTP integration test failure
+        if: failure() && steps.http_tests.outcome == 'failure'
+        run: |
+          echo "::group::HTTP integration test failure tail"
+          tail -100 /tmp/http-tests.log
+          echo "::endgroup::"
+          tail -80 /tmp/http-tests.log | while IFS= read -r line; do
+            # Strip characters that break the ::error:: annotation format.
+            safe="${line//$'\r'/}"
+            safe="${safe//$'\n'/ }"
+            echo "::error::${safe}"
+          done
 
   storefront-e2e:
     runs-on: ubuntu-latest
