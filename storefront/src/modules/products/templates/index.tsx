@@ -44,17 +44,24 @@ const ProductTemplate = async ({
         className="content-container  flex flex-col small:flex-row small:items-start py-6 relative"
         data-testid="product-container"
       >
-        <div className="flex flex-col small:sticky small:top-48 small:py-0 small:max-w-[300px] w-full py-8 gap-y-6">
+        {/* Mobile order (order-*): image first, then the buy box (variant
+            picker + add to cart), then title/description/shipping/reviews —
+            matching how most storefronts sequence a mobile PDP (the image
+            and purchase action come before further reading, not after).
+            Desktop (small:order-*) is untouched: same three-column layout
+            and DOM order as before, so nothing changes above the "small"
+            breakpoint. */}
+        <div className="flex flex-col small:sticky small:top-48 small:py-0 small:max-w-[300px] w-full py-8 gap-y-6 order-3 small:order-1">
           <div className="flex items-start justify-between gap-x-4">
             <ProductInfo product={product} />
             <WishlistButton productId={product.id} isLoggedIn={!!customer} />
           </div>
           <ProductTabs product={product} reviews={reviews} isLoggedIn={!!customer} />
         </div>
-        <div className="block w-full relative">
+        <div className="block w-full relative order-1 small:order-2">
           <ImageGallery images={images} />
         </div>
-        <div className="flex flex-col small:sticky small:top-48 small:py-0 small:max-w-[300px] w-full py-8 gap-y-12">
+        <div className="flex flex-col small:sticky small:top-48 small:py-0 small:max-w-[300px] w-full py-8 gap-y-12 order-2 small:order-3">
           <ProductOnboardingCta />
           <Suspense
             fallback={
