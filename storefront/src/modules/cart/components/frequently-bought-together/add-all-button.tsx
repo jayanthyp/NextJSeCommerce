@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useParams } from "next/navigation"
 import { Button } from "@medusajs/ui"
 
-import { addToCart } from "@lib/data/cart"
+import { addMultipleToCart } from "@lib/data/cart"
 
 const AddAllButton = ({ variantIds }: { variantIds: string[] }) => {
   const [isAdding, setIsAdding] = useState(false)
@@ -13,17 +13,12 @@ const AddAllButton = ({ variantIds }: { variantIds: string[] }) => {
   const handleAddAll = async () => {
     setIsAdding(true)
     try {
-      // Sequential, not Promise.all: concurrent createLineItem calls against
-      // the *same* cart race on Medusa's optimistic-concurrency cart version
-      // and can stall well past a reasonable UI timeout under constrained
-      // resources (observed hanging in CI). One at a time avoids the race;
-      // a failed add (e.g. one suggestion out of stock) still lets the rest
-      // through since each iteration is caught independently.
-      for (const variantId of variantIds) {
-        await addToCart({ variantId, quantity: 1, countryCode }).catch(
-          () => void 0
-        )
-      }
+      // One Server Action call that resolves the cart once and adds every
+      // item sequentially against it (see addMultipleToCart) — looping
+      // addToCart here previously re-resolved the cart/region on every
+      // single item (2 round trips per item instead of 1), which is what
+      // made this button prone to blowing past CI's timeout under load.
+      await addMultipleToCart(variantIds, countryCode)
     } finally {
       setIsAdding(false)
     }

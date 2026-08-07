@@ -115,6 +115,34 @@ export async function updateCart(data: HttpTypes.StoreUpdateCart) {
     .catch(medusaError)
 }
 
+// Shared by addToCart and addMultipleToCart below — the actual line-item
+// creation against an *already-resolved* cart id, without re-running
+// getOrSetCart's own region/cart lookup round trip.
+async function createLineItem(cartId: string, variantId: string, quantity: number) {
+  const headers = {
+    ...(await getAuthHeaders()),
+  }
+
+  await sdk.store.cart
+    .createLineItem(
+      cartId,
+      {
+        variant_id: variantId,
+        quantity,
+      },
+      {},
+      headers
+    )
+    .then(async () => {
+      const cartCacheTag = await getCacheTag("carts")
+      revalidateTag(cartCacheTag)
+
+      const fulfillmentCacheTag = await getCacheTag("fulfillment")
+      revalidateTag(fulfillmentCacheTag)
+    })
+    .catch(medusaError)
+}
+
 export async function addToCart({
   variantId,
   quantity,
@@ -134,28 +162,29 @@ export async function addToCart({
     throw new Error("Error retrieving or creating cart")
   }
 
-  const headers = {
-    ...(await getAuthHeaders()),
+  await createLineItem(cart.id, variantId, quantity)
+}
+
+// Adds several variants to the cart in one Server Action call. Resolves the
+// cart/region *once* rather than once per item (see addToCart) — for N
+// suggested items that's 1 cart lookup + N line-item creates instead of 2N
+// round trips, which is where a "frequently bought together" add-all
+// button's total latency actually goes. Each item is still added
+// sequentially against the same cart id: concurrent createLineItem calls
+// race on Medusa's optimistic-concurrency cart version.
+export async function addMultipleToCart(
+  variantIds: string[],
+  countryCode: string
+) {
+  const cart = await getOrSetCart(countryCode)
+
+  if (!cart) {
+    throw new Error("Error retrieving or creating cart")
   }
 
-  await sdk.store.cart
-    .createLineItem(
-      cart.id,
-      {
-        variant_id: variantId,
-        quantity,
-      },
-      {},
-      headers
-    )
-    .then(async () => {
-      const cartCacheTag = await getCacheTag("carts")
-      revalidateTag(cartCacheTag)
-
-      const fulfillmentCacheTag = await getCacheTag("fulfillment")
-      revalidateTag(fulfillmentCacheTag)
-    })
-    .catch(medusaError)
+  for (const variantId of variantIds) {
+    await createLineItem(cart.id, variantId, 1).catch(() => void 0)
+  }
 }
 
 export async function updateLineItem({
