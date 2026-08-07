@@ -14,7 +14,7 @@ WORKDIR /app
 
 RUN apk add --no-cache libc6-compat
 
-COPY package.json .npmrc* yarn.lock* package-lock.json* pnpm-lock.yaml* ./
+COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
 
 RUN set -eux; \
     if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; \
