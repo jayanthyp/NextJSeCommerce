@@ -146,11 +146,39 @@ jobs:
     steps:
       - name: SSH in and run deploy.sh
         uses: appleboy/ssh-action@v1
+        env:
+          # appleboy/ssh-action's `envs:` input only forwards names already
+          # present in this step's own env context — it doesn't read
+          # `secrets.*` by name itself, so they have to be mapped in here
+          # first.
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          MAILERLITE_API_KEY: ${{ secrets.MAILERLITE_API_KEY }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          # Most of the VPS's .env is provisioned once at bootstrap and never
+          # touched by CI (DB/JWT/cookie secrets, SMTP, etc. — see
+          # deploy.sh's own comment on why deploys stay pull-only). These
+          # three are the exception: optional integrations that get
+          # configured well after initial setup, so syncing them from
+          # GitHub Secrets on every deploy means enabling one is just
+          # "add the secret, push" instead of an extra SSH session. Each is
+          # only touched when its secret is actually set, so leaving one
+          # empty here doesn't blank out a value already on the server.
+          envs: GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,MAILERLITE_API_KEY
           script: |
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
             cd /opt/NextJSeCommerce
+            sync_env_secret() {
+              local key="$1" value="$2"
+              [ -n "$value" ] || return 0
+              grep -v "^${key}=" .env > .env.tmp || true
+              mv .env.tmp .env
+              echo "${key}=${value}" >> .env
+            }
+            sync_env_secret GOOGLE_CLIENT_ID "$GOOGLE_CLIENT_ID"
+            sync_env_secret GOOGLE_CLIENT_SECRET "$GOOGLE_CLIENT_SECRET"
+            sync_env_secret MAILERLITE_API_KEY "$MAILERLITE_API_KEY"
             ./scripts/deploy.sh
