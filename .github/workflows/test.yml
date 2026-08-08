@@ -1,15 +1,24 @@
 name: Test
 
 # Runs on every push/PR for visibility, AND as a reusable workflow
-# (workflow_call) so deploy-vps.yml can `needs:` it — a red suite blocks
-# production deploys. GitHub Actions doesn't support `needs:` across
-# separate workflow files directly; workflow_call is the standard way to
-# make one workflow gate another.
+# (workflow_call) so deploy-vps.yml can `needs:` it. Only backend-tests and
+# storefront-unit actually gate a deploy (via the outputs below) —
+# storefront-e2e still runs here on every push/PR so failures stay visible,
+# but deploy-vps.yml deliberately doesn't wait on it (see that file's
+# `deploy` job for why: it's the slowest job and its failures are usually
+# either flakiness or caught well before a merge reaches `main`).
 on:
   push:
     branches: [main]
   pull_request:
-  workflow_call: {}
+  workflow_call:
+    outputs:
+      backend-tests-result:
+        description: "Result of the backend-tests job"
+        value: ${{ jobs.backend-tests.result }}
+      storefront-unit-result:
+        description: "Result of the storefront-unit job"
+        value: ${{ jobs.storefront-unit.result }}
 
 jobs:
   backend-tests:
