@@ -23,6 +23,7 @@ import {
   WebhookActionResult,
 } from "@medusajs/framework/types";
 import crypto from "crypto";
+import { RAZORPAY_CONFIG_MODULE } from "../razorpay-config";
 
 type Options = {
   keyId: string;
@@ -32,6 +33,10 @@ type Options = {
 
 type InjectedDependencies = {
   logger: Logger;
+};
+
+type RazorpayConfigService = {
+  getActiveCredentials(): Promise<Options | null>;
 };
 
 const RAZORPAY_API_BASE = "https://api.razorpay.com/v1";
@@ -68,10 +73,34 @@ class RazorpayProviderService extends AbstractPaymentProvider<Options> {
     this.options_ = options;
   }
 
+  /**
+   * Admin-configured test/live credentials (see ../razorpay-config) take
+   * priority over the static medusa-config.ts options whenever a full set
+   * is stored -- this is what lets switching active_mode in Admin take
+   * effect immediately, no redeploy. Falls back to the static options
+   * (this.options_, from RAZORPAY_KEY_ID etc.) if nothing's configured
+   * there yet, or if the config module can't be reached for some reason.
+   */
+  private async getCredentials(): Promise<Options> {
+    try {
+      const configService = this.container[RAZORPAY_CONFIG_MODULE] as
+        | RazorpayConfigService
+        | undefined;
+      const stored = await configService?.getActiveCredentials();
+      if (stored) {
+        return stored;
+      }
+    } catch (e) {
+      this.logger_.error(
+        `Failed to read Razorpay credentials from the admin config module, falling back to static options: ${e}`
+      );
+    }
+    return this.options_;
+  }
+
   private async razorpayFetch<T>(path: string, init?: RequestInit): Promise<T> {
-    const token = Buffer.from(`${this.options_.keyId}:${this.options_.keySecret}`).toString(
-      "base64"
-    );
+    const credentials = await this.getCredentials();
+    const token = Buffer.from(`${credentials.keyId}:${credentials.keySecret}`).toString("base64");
 
     const response = await fetch(`${RAZORPAY_API_BASE}${path}`, {
       ...init,
@@ -139,10 +168,11 @@ class RazorpayProviderService extends AbstractPaymentProvider<Options> {
       return { status: "pending_authorization", data };
     }
 
+    const credentials = await this.getCredentials();
     const isValid = this.verifySignature(
       `${orderId}|${paymentId}`,
       signature,
-      this.options_.keySecret
+      credentials.keySecret
     );
 
     if (!isValid) {
@@ -232,8 +262,9 @@ class RazorpayProviderService extends AbstractPaymentProvider<Options> {
     const { data, rawData, headers } = payload;
     const signature = headers["x-razorpay-signature"] as string | undefined;
     const rawBody = typeof rawData === "string" ? rawData : rawData.toString("utf8");
+    const credentials = await this.getCredentials();
 
-    if (!signature || !this.verifySignature(rawBody, signature, this.options_.webhookSecret)) {
+    if (!signature || !this.verifySignature(rawBody, signature, credentials.webhookSecret)) {
       throw new Error("Razorpay webhook signature verification failed.");
     }
 

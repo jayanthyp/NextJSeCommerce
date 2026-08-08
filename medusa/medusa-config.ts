@@ -235,6 +235,17 @@ module.exports = defineConfig({
     { resolve: "./src/modules/abandoned-cart-tracking" },
     { resolve: "./src/modules/back-in-stock-request" },
     { resolve: "./src/modules/marketing-consent" },
+
+    // Registered unconditionally (unlike the `payment` module block above,
+    // which is gated on RAZORPAY_ENABLED) so the Admin config page and API
+    // always work -- an admin can set up test/live credentials here before
+    // RAZORPAY_KEY_ID etc. are ever set, since Medusa's module system needs
+    // *some* env-var options present to register the payment provider
+    // itself at boot (see issue #18: switching between already-configured
+    // modes is instant via this module, but going from fully-disabled to
+    // enabled for the first time still needs that initial env var + a
+    // restart -- Medusa has no runtime payment-provider registration API).
+    { resolve: "./src/modules/razorpay-config" },
   ],
 
   // Third-party packaged extensions (module + admin/api routes bundled

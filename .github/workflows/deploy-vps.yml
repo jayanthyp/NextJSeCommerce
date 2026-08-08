@@ -162,6 +162,7 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           MAILERLITE_API_KEY: ${{ secrets.MAILERLITE_API_KEY }}
+          RAZORPAY_CONFIG_ENCRYPTION_KEY: ${{ secrets.RAZORPAY_CONFIG_ENCRYPTION_KEY }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -175,7 +176,7 @@ jobs:
           # "add the secret, push" instead of an extra SSH session. Each is
           # only touched when its secret is actually set, so leaving one
           # empty here doesn't blank out a value already on the server.
-          envs: GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,MAILERLITE_API_KEY
+          envs: GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,MAILERLITE_API_KEY,RAZORPAY_CONFIG_ENCRYPTION_KEY
           script: |
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
             cd /opt/NextJSeCommerce
@@ -189,4 +190,5 @@ jobs:
             sync_env_secret GOOGLE_CLIENT_ID "$GOOGLE_CLIENT_ID"
             sync_env_secret GOOGLE_CLIENT_SECRET "$GOOGLE_CLIENT_SECRET"
             sync_env_secret MAILERLITE_API_KEY "$MAILERLITE_API_KEY"
+            sync_env_secret RAZORPAY_CONFIG_ENCRYPTION_KEY "$RAZORPAY_CONFIG_ENCRYPTION_KEY"
             ./scripts/deploy.sh
