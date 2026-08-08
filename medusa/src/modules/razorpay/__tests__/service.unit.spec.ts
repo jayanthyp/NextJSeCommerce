@@ -56,7 +56,10 @@ describe("RazorpayProviderService", () => {
       })
       expect(result).toEqual({
         id: "order_abc123",
-        data: { id: "order_abc123", status: "created" },
+        // key_id is the public Razorpay key -- exposed here so the
+        // storefront can pass it to Checkout.js, the same way a Stripe
+        // publishable key works.
+        data: { id: "order_abc123", status: "created", key_id: KEY_ID },
       })
     })
   })

@@ -1,8 +1,9 @@
 "use client"
 
 import { RadioGroup } from "@headlessui/react"
-import { isStripeLike, paymentInfoMap } from "@lib/constants"
+import { isRazorpay, isStripeLike, paymentInfoMap } from "@lib/constants"
 import { initiatePaymentSession } from "@lib/data/cart"
+import { openRazorpayCheckout } from "@lib/util/razorpay-checkout"
 import { CheckCircleSolid, CreditCard } from "@medusajs/icons"
 import { Button, Container, Heading, Text, clx } from "@medusajs/ui"
 import ErrorMessage from "@modules/checkout/components/error-message"
@@ -79,9 +80,39 @@ const Payment = ({
       const checkActiveSession =
         activeSession?.provider_id === selectedPaymentMethod
 
+      let sessionData = activeSession?.data
+
       if (!checkActiveSession) {
+        const { payment_collection } = await initiatePaymentSession(cart, {
+          provider_id: selectedPaymentMethod,
+        })
+        sessionData = payment_collection?.payment_sessions?.find(
+          (session: any) => session.provider_id === selectedPaymentMethod
+        )?.data
+      }
+
+      if (isRazorpay(selectedPaymentMethod)) {
+        if (!sessionData) {
+          throw new Error("Could not start the Razorpay payment session.")
+        }
+
+        const confirmation = await openRazorpayCheckout(sessionData, {
+          name: [cart?.shipping_address?.first_name, cart?.shipping_address?.last_name]
+            .filter(Boolean)
+            .join(" "),
+          email: cart?.email,
+          phone: cart?.shipping_address?.phone,
+        })
+
+        // Re-initiating with the same provider_id attaches the signed
+        // confirmation to the already-pending session's data (Medusa's
+        // create-payment-session step updates rather than recreates a
+        // pending session for the same provider) -- this is what
+        // authorizePayment (medusa/src/modules/razorpay/service.ts) reads
+        // when the order is placed on the review step.
         await initiatePaymentSession(cart, {
           provider_id: selectedPaymentMethod,
+          data: { ...sessionData, ...confirmation },
         })
       }
 
@@ -196,7 +227,9 @@ const Payment = ({
           >
             {!activeSession && isStripeLike(selectedPaymentMethod)
               ? " Enter card details"
-              : "Continue to review"}
+              : isRazorpay(selectedPaymentMethod)
+                ? "Pay with Razorpay"
+                : "Continue to review"}
           </Button>
         </div>
 
