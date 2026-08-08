@@ -6,6 +6,14 @@ Run exactly one cycle of the dev loop against `jayanthyp/NextJSeCommerce`, in th
 the user anything mid-cycle — if something is genuinely ambiguous, that's what the Blocked protocol
 below is for.
 
+## 0. Announce the poll time
+
+Before doing anything else, print a line to the chat (plain text, not just a tool call) stating the
+current local timestamp, e.g. `Polling at 2026-08-08 15:20:00`. Get the real time from the environment
+(e.g. `date` via Bash) rather than guessing — the person running this loop isn't necessarily watching
+every cycle, and this is how they can tell from the IDE chat alone when each poll actually happened,
+without digging into cron/task logs.
+
 ## 1. Check blocked issues for a reply first
 
 ```
