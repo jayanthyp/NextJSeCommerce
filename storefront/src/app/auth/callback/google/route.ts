@@ -43,6 +43,25 @@ export async function GET(request: NextRequest) {
     const headers = await getAuthHeaders()
     await sdk.store.customer.create({}, {}, headers).catch(() => null)
 
+    // Whichever path just ran above, the token set at the top of this
+    // handler is still the ORIGINAL actor-less one — it has no actor_id,
+    // so retrieveCustomer() rejects it even though the identity is now
+    // correctly linked to a customer. sdk.auth.refresh() is exactly what
+    // Medusa's own SDK docs describe calling at this point in the OAuth
+    // flow: exchange it for a token that reflects the linked actor.
+    const refreshed = await sdk.auth.refresh(await getAuthHeaders())
+    if (
+      typeof refreshed === "object" &&
+      refreshed !== null &&
+      "token" in refreshed &&
+      !("mfa_required" in refreshed) &&
+      !("verification_required" in refreshed)
+    ) {
+      await setAuthToken(refreshed.token)
+    } else {
+      throw new Error("Unexpected multi-step response refreshing the Google auth token")
+    }
+
     await transferCart().catch(() => null)
   } catch (error) {
     return NextResponse.redirect(
