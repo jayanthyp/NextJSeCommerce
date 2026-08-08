@@ -1,6 +1,7 @@
 "use client"
 
 import { Button } from "@medusajs/ui"
+import { useParams } from "next/navigation"
 import { loginWithOAuth } from "@lib/data/customer"
 
 // Hidden entirely when Google isn't configured (NEXT_PUBLIC_GOOGLE_AUTH_ENABLED
@@ -8,12 +9,17 @@ import { loginWithOAuth } from "@lib/data/customer"
 // (see search-bar/index.tsx's searchEnabled check). Google credentials are a
 // manual Google Cloud Console step, so this stays off by default.
 const GoogleLoginButton = () => {
+  const countryCode = useParams().countryCode as string
+
   if (process.env.NEXT_PUBLIC_GOOGLE_AUTH_ENABLED !== "true") {
     return null
   }
 
   return (
-    <form action={loginWithOAuth.bind(null, "google")} className="w-full">
+    <form
+      action={loginWithOAuth.bind(null, "google", countryCode)}
+      className="w-full"
+    >
       <Button
         type="submit"
         variant="secondary"

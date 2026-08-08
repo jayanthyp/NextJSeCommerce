@@ -97,6 +97,38 @@ export const removeCartId = async () => {
   })
 }
 
+// Google's OAuth redirect only ever lands at one fixed, unprefixed URL
+// (/auth/callback/google — see loginWithOAuth's own comment on why), so
+// the region the visitor was actually browsing in has nowhere to travel
+// through that round trip on its own. Stashed here right before the
+// redirect to Google, read back (and cleared) once on the way back, so
+// e.g. an Australian visitor lands back on /au/account instead of
+// whatever NEXT_PUBLIC_DEFAULT_REGION happens to be.
+const OAUTH_RETURN_REGION_COOKIE = "_medusa_oauth_return_region"
+
+export const setOAuthReturnRegion = async (countryCode: string) => {
+  const cookies = await nextCookies()
+  cookies.set(OAUTH_RETURN_REGION_COOKIE, countryCode, {
+    maxAge: 60 * 10,
+    httpOnly: true,
+    // Same reasoning as _medusa_jwt above — this cookie is set right
+    // before redirecting to Google and has to survive the return trip.
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  })
+}
+
+export const consumeOAuthReturnRegion = async (): Promise<
+  string | undefined
+> => {
+  const cookies = await nextCookies()
+  const value = cookies.get(OAUTH_RETURN_REGION_COOKIE)?.value
+  if (value) {
+    cookies.set(OAUTH_RETURN_REGION_COOKIE, "", { maxAge: -1 })
+  }
+  return value
+}
+
 export type ThemePreference = "light" | "dark" | "system"
 
 export const getTheme = async (): Promise<ThemePreference> => {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { sdk } from "@lib/config"
-import { setAuthToken } from "@lib/data/cookies"
+import { setAuthToken, consumeOAuthReturnRegion } from "@lib/data/cookies"
 import { transferCart } from "@lib/data/customer"
 import { getBaseURL } from "@lib/util/env"
 
@@ -21,13 +21,19 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 }
 
 // Deliberately outside [countryCode] — see loginWithOAuth's comment for why.
-// Lands on the default region's account page rather than trying to restore
-// the exact page the user started from; smuggling the original countryCode
-// through Google's OAuth `state` round trip isn't worth the complexity for
-// what's already a fairly rare navigation (landing on /account after
-// signing in is standard behavior for "Continue with Google" flows).
+// Lands on the region the visitor was actually browsing in before starting
+// sign-in — loginWithOAuth stashes it in a short-lived cookie right before
+// redirecting to Google, since Google's own redirect back here carries no
+// room for it (just `code`/`state`). Falls back to
+// NEXT_PUBLIC_DEFAULT_REGION if that cookie is missing (e.g. an old
+// in-flight sign-in from before this existed) — an invalid/stale region in
+// either case just gets corrected by middleware.ts's own region resolution
+// on the next request, so no validation is needed here.
 export async function GET(request: NextRequest) {
-  const defaultRegion = process.env.NEXT_PUBLIC_DEFAULT_REGION || "us"
+  const defaultRegion =
+    (await consumeOAuthReturnRegion()) ||
+    process.env.NEXT_PUBLIC_DEFAULT_REGION ||
+    "us"
   const query = Object.fromEntries(request.nextUrl.searchParams.entries())
   // Built from NEXT_PUBLIC_BASE_URL (same helper sitemap.ts/product-jsonld
   // use), not request.url — behind the standalone Next.js server, the

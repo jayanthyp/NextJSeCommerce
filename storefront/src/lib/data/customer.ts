@@ -13,6 +13,7 @@ import {
   removeAuthToken,
   removeCartId,
   setAuthToken,
+  setOAuthReturnRegion,
 } from "./cookies"
 
 export const retrieveCustomer =
@@ -135,7 +136,9 @@ export async function login(_currentState: unknown, formData: FormData) {
  * needs one fixed, exactly-matching redirect URI, which a locale-prefixed
  * path can't reliably provide as more regions are added).
  */
-export async function loginWithOAuth(provider: "google") {
+export async function loginWithOAuth(provider: "google", countryCode: string) {
+  await setOAuthReturnRegion(countryCode)
+
   const result = await sdk.auth.login("customer", provider, {})
 
   if (typeof result === "object" && "location" in result) {
@@ -147,7 +150,7 @@ export async function loginWithOAuth(provider: "google") {
   // rather than silently doing nothing).
   if (typeof result === "string") {
     await setAuthToken(result)
-    redirect("/account")
+    redirect(`/${countryCode}/account`)
   }
 }
 

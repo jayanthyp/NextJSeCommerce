@@ -4,6 +4,9 @@ import { render, screen } from "@testing-library/react"
 vi.mock("@lib/data/customer", () => ({
   loginWithOAuth: vi.fn(),
 }))
+vi.mock("next/navigation", () => ({
+  useParams: () => ({ countryCode: "us" }),
+}))
 
 import GoogleLoginButton from "./index"
 
