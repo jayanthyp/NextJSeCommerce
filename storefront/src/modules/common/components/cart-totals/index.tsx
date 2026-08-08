@@ -12,6 +12,7 @@ type CartTotalsProps = {
     item_subtotal?: number | null
     shipping_subtotal?: number | null
     discount_subtotal?: number | null
+    items?: { is_tax_inclusive?: boolean }[] | null
   }
 }
 
@@ -23,7 +24,13 @@ const CartTotals: React.FC<CartTotalsProps> = ({ totals }) => {
     item_subtotal,
     shipping_subtotal,
     discount_subtotal,
+    items,
   } = totals
+
+  // Tax-inclusive regions (e.g. India, see issue #8) already bake tax into
+  // the prices shown above -- a separate "Taxes" line would either double
+  // up or read as an add-on charge that isn't actually being added.
+  const isTaxInclusive = !!items?.some((item) => item.is_tax_inclusive)
 
   return (
     <div>
@@ -56,12 +63,14 @@ const CartTotals: React.FC<CartTotalsProps> = ({ totals }) => {
             </span>
           </div>
         )}
-        <div className="flex justify-between">
-          <span className="flex gap-x-1 items-center ">Taxes</span>
-          <span data-testid="cart-taxes" data-value={tax_total || 0}>
-            {convertToLocale({ amount: tax_total ?? 0, currency_code })}
-          </span>
-        </div>
+        {!isTaxInclusive && (
+          <div className="flex justify-between">
+            <span className="flex gap-x-1 items-center ">Taxes</span>
+            <span data-testid="cart-taxes" data-value={tax_total || 0}>
+              {convertToLocale({ amount: tax_total ?? 0, currency_code })}
+            </span>
+          </div>
+        )}
       </div>
       <div className="h-px w-full border-b border-gray-200 my-4" />
       <div className="flex items-center justify-between text-ui-fg-base mb-2 txt-medium ">
