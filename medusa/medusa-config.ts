@@ -41,7 +41,17 @@ const authProviders = [
           options: {
             clientId: process.env.GOOGLE_CLIENT_ID,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-            callbackUrl: `${process.env.MEDUSA_BACKEND_URL || "http://localhost:9000"}/auth/customer/google/callback`,
+            // Google redirects the browser here directly, not to the
+            // backend — this must be the *storefront's* own callback route
+            // (storefront/src/app/auth/callback/google/route.ts), which
+            // exchanges the code server-side by calling the backend itself.
+            // The backend's own /auth/customer/google/callback route just
+            // returns raw JSON with no redirect, so it can't be this URL —
+            // matches the exact value registered in Google Cloud Console's
+            // Authorized redirect URIs (see .env.example).
+            callbackUrl: process.env.STORE_DOMAIN
+              ? `https://${process.env.STORE_DOMAIN}/auth/callback/google`
+              : "http://localhost:8000/auth/callback/google",
           },
         },
       ]
