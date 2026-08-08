@@ -31,6 +31,16 @@ const GOOGLE_AUTH_ENABLED = Boolean(
   process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
 )
 
+// Razorpay is optional too (see issue #7) — until real credentials exist,
+// checkout falls back to Medusa's built-in "system" payment provider, which
+// is always registered regardless of this config (see
+// @medusajs/payment's providers loader).
+const RAZORPAY_ENABLED = Boolean(
+  process.env.RAZORPAY_KEY_ID &&
+    process.env.RAZORPAY_KEY_SECRET &&
+    process.env.RAZORPAY_WEBHOOK_SECRET
+)
+
 const authProviders = [
   { resolve: "@medusajs/medusa/auth-emailpass", id: "emailpass" },
   ...(GOOGLE_AUTH_ENABLED
@@ -192,6 +202,28 @@ module.exports = defineConfig({
       resolve: "@medusajs/medusa/auth",
       options: { providers: authProviders },
     },
+
+    // --- Payment ------------------------------------------------------------
+    ...(RAZORPAY_ENABLED
+      ? [
+          {
+            resolve: "@medusajs/medusa/payment",
+            options: {
+              providers: [
+                {
+                  resolve: "./src/modules/razorpay",
+                  id: "razorpay",
+                  options: {
+                    keyId: process.env.RAZORPAY_KEY_ID,
+                    keySecret: process.env.RAZORPAY_KEY_SECRET,
+                    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
+                  },
+                },
+              ],
+            },
+          },
+        ]
+      : []),
 
     // --- Site content -----------------------------------------------------
     { resolve: "./src/modules/homepage-carousel" },
