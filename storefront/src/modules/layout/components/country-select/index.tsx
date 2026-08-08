@@ -70,6 +70,8 @@ const CountrySelect = ({ regions }: CountrySelectProps) => {
       <ListboxButton
         className="hover:text-ui-fg-base flex items-center gap-x-2"
         data-testid="region-switcher-button"
+        aria-label={current?.label ? `Region: ${current.label}` : undefined}
+        title={current?.label}
       >
         {current && (
           <>
@@ -79,10 +81,17 @@ const CountrySelect = ({ regions }: CountrySelectProps) => {
               style={{
                 width: "16px",
                 height: "16px",
+                minWidth: "16px",
+                flexShrink: 0,
               }}
               countryCode={current.country ?? ""}
             />
-            <span className="txt-compact-small">{current.label}</span>
+            {/* Flag-only below the `small` breakpoint (see the header's
+                existing `hidden small:flex` pattern) -- the full name is
+                still exposed via aria-label/title above. */}
+            <span className="hidden small:inline txt-compact-small">
+              {current.label}
+            </span>
           </>
         )}
       </ListboxButton>
