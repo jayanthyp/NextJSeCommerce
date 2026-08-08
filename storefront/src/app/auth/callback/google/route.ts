@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { sdk } from "@lib/config"
 import { setAuthToken, getAuthHeaders } from "@lib/data/cookies"
 import { transferCart } from "@lib/data/customer"
+import { getBaseURL } from "@lib/util/env"
 
 // Deliberately outside [countryCode] — see loginWithOAuth's comment for why.
 // Lands on the default region's account page rather than trying to restore
@@ -13,6 +14,11 @@ import { transferCart } from "@lib/data/customer"
 export async function GET(request: NextRequest) {
   const defaultRegion = process.env.NEXT_PUBLIC_DEFAULT_REGION || "us"
   const query = Object.fromEntries(request.nextUrl.searchParams.entries())
+  // Built from NEXT_PUBLIC_BASE_URL (same helper sitemap.ts/product-jsonld
+  // use), not request.url — behind the standalone Next.js server, the
+  // latter can reflect the container's internal bind address rather than
+  // the real public host, sending the browser to an unreachable URL.
+  const baseUrl = getBaseURL()
 
   try {
     const result = await sdk.auth.callback("customer", "google", query)
@@ -40,9 +46,9 @@ export async function GET(request: NextRequest) {
     await transferCart().catch(() => null)
   } catch (error) {
     return NextResponse.redirect(
-      new URL(`/${defaultRegion}/account?error=google-sign-in-failed`, request.url)
+      new URL(`/${defaultRegion}/account?error=google-sign-in-failed`, baseUrl)
     )
   }
 
-  return NextResponse.redirect(new URL(`/${defaultRegion}/account`, request.url))
+  return NextResponse.redirect(new URL(`/${defaultRegion}/account`, baseUrl))
 }
