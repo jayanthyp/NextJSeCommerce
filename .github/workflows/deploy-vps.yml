@@ -126,8 +126,13 @@ jobs:
           cache-to: type=gha,mode=max,scope=storefront
 
   # Reusable workflow_call — cross-workflow-file `needs:` isn't otherwise
-  # possible in GitHub Actions, so this is how a red test suite blocks a
-  # production deploy. See test.yml for what actually runs.
+  # possible in GitHub Actions, so this is how backend-tests/storefront-unit
+  # block a production deploy. See test.yml for what actually runs.
+  #
+  # storefront-e2e (Playwright) also runs as part of this call, but
+  # deliberately does NOT gate `deploy` below — see that job's condition.
+  # It still runs on every push/PR (test.yml's own triggers) so failures
+  # stay visible; deploy just doesn't wait on it.
   test:
     uses: ./.github/workflows/test.yml
 
@@ -135,13 +140,16 @@ jobs:
     needs: [build-backend, build-storefront, test]
     # Proceed as long as neither build actually FAILED — a job that was
     # correctly skipped (nothing relevant changed) shouldn't block deploying
-    # the other one that did. `test`, unlike the builds, is never skipped —
-    # it always has to pass.
+    # the other one that did. Of `test`'s three sub-jobs, only backend-tests
+    # and storefront-unit have to pass — storefront-e2e is checked via
+    # `always()` + explicit per-job outputs (not `needs.test.result`)
+    # specifically so a red e2e run alone doesn't block deploy.
     if: |
       always() && !cancelled() &&
       (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
       (needs.build-storefront.result == 'success' || needs.build-storefront.result == 'skipped') &&
-      needs.test.result == 'success'
+      needs.test.outputs.backend-tests-result == 'success' &&
+      needs.test.outputs.storefront-unit-result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: SSH in and run deploy.sh
