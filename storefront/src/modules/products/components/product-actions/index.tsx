@@ -5,7 +5,7 @@ import { useIntersection } from "@lib/hooks/use-in-view"
 import { getProductPrice } from "@lib/util/get-product-price"
 import { trackAddToCart } from "@lib/util/analytics"
 import { HttpTypes } from "@medusajs/types"
-import { Button } from "@medusajs/ui"
+import { Button, Text } from "@medusajs/ui"
 import Divider from "@modules/common/components/divider"
 import OptionSelect from "@modules/products/components/product-actions/option-select"
 import NotifyMeButton from "@modules/products/components/notify-me-button"
@@ -41,6 +41,7 @@ export default function ProductActions({
 
   const [options, setOptions] = useState<Record<string, string | undefined>>({})
   const [isAdding, setIsAdding] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
   const countryCode = useParams().countryCode as string
 
   // If there is only 1 variant, preselect the options
@@ -128,31 +129,46 @@ export default function ProductActions({
     if (!selectedVariant?.id) return null
 
     setIsAdding(true)
+    setAddError(null)
 
-    await addToCart({
-      variantId: selectedVariant.id,
-      quantity: 1,
-      countryCode,
-    })
+    // The button's own `inStock` memo can go stale relative to the
+    // backend — e.g. the product page was already open in this tab when
+    // stock hit zero in another. addToCart() correctly rejects that, but
+    // without a try/finally here the rejection would leave isAdding
+    // stuck true forever: a permanently spinning button with no
+    // indication of what happened (confirmed reproducing exactly this).
+    try {
+      await addToCart({
+        variantId: selectedVariant.id,
+        quantity: 1,
+        countryCode,
+      })
 
-    const { variantPrice } = getProductPrice({
-      product,
-      variantId: selectedVariant.id,
-    })
+      const { variantPrice } = getProductPrice({
+        product,
+        variantId: selectedVariant.id,
+      })
 
-    if (variantPrice) {
-      trackAddToCart(
-        {
-          item_id: selectedVariant.id,
-          item_name: product.title,
-          price: variantPrice.calculated_price_number,
-          quantity: 1,
-        },
-        variantPrice.currency_code
+      if (variantPrice) {
+        trackAddToCart(
+          {
+            item_id: selectedVariant.id,
+            item_name: product.title,
+            price: variantPrice.calculated_price_number,
+            quantity: 1,
+          },
+          variantPrice.currency_code
+        )
+      }
+    } catch (error) {
+      setAddError(
+        error instanceof Error
+          ? error.message
+          : "Something went wrong adding this item to your cart."
       )
+    } finally {
+      setIsAdding(false)
     }
-
-    setIsAdding(false)
   }
 
   return (
@@ -202,6 +218,11 @@ export default function ProductActions({
             ? "Out of stock"
             : "Add to cart"}
         </Button>
+        {addError && (
+          <Text className="text-ui-fg-error txt-small" data-testid="add-to-cart-error">
+            {addError}
+          </Text>
+        )}
         {selectedVariant && isValidVariant && !inStock && (
           <NotifyMeButton
             variantId={selectedVariant.id}
