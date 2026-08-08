@@ -10,6 +10,18 @@ import PayPal from "@modules/common/icons/paypal"
 // than hardcoding the name, so a rebrand is a one-line change.
 export const SITE_NAME = "Structura Crafts"
 
+/**
+ * Scoped-down market launch (see issue #15) — the underlying region/
+ * currency/shipping data for every other country added by
+ * add-global-regions.ts is left completely intact (deliberately not a
+ * destructive change), only what's *offered* as a selectable option in the
+ * storefront's country-select controls (header region-switcher, checkout
+ * address forms) is restricted here. A visitor already on another locale's
+ * URL isn't blocked from browsing it; this only limits what shows up when
+ * they pick a country from a dropdown.
+ */
+export const SELECTABLE_COUNTRY_CODES = ["in", "au"]
+
 /* Map of payment provider_id to their title and icon. Add in any payment providers you want to use. */
 export const paymentInfoMap: Record<
   string,

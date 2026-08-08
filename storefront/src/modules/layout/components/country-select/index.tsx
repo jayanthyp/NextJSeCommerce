@@ -11,6 +11,7 @@ import ReactCountryFlag from "react-country-flag"
 
 import { useParams, usePathname } from "next/navigation"
 import { updateRegion } from "@lib/data/cart"
+import { SELECTABLE_COUNTRY_CODES } from "@lib/constants"
 import { HttpTypes } from "@medusajs/types"
 
 type CountryOption = {
@@ -42,6 +43,9 @@ const CountrySelect = ({ regions }: CountrySelectProps) => {
         }))
       })
       .flat()
+      .filter(
+        (o) => o?.country && SELECTABLE_COUNTRY_CODES.includes(o.country)
+      )
       .sort((a, b) => (a?.label ?? "").localeCompare(b?.label ?? ""))
   }, [regions])
 
