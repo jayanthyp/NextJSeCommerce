@@ -54,7 +54,16 @@ export const setAuthToken = async (token: string) => {
   cookies.set("_medusa_jwt", token, {
     maxAge: 60 * 60 * 24 * 7,
     httpOnly: true,
-    sameSite: "strict",
+    // "strict" here dropped the cookie on the *next* request after
+    // Google's OAuth redirect: some browsers still treat the immediate
+    // same-origin follow-up redirect (our own /auth/callback/google ->
+    // /account) as part of the cross-site navigation chain that started
+    // at Google, so a Strict cookie set mid-chain isn't sent on it —
+    // landing on /account looking signed-out despite the token having
+    // been set correctly. "lax" is the standard choice for an auth
+    // session cookie for exactly this reason (still blocks cross-site
+    // POST-based CSRF, just allows top-level GET navigations).
+    sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
   })
 }
