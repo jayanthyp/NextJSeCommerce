@@ -149,9 +149,14 @@ class RazorpayProviderService extends AbstractPaymentProvider<Options> {
       }),
     });
 
+    // key_id (unlike keySecret/webhookSecret) is meant to be public -- it's
+    // what the storefront passes to Razorpay's own Checkout.js SDK to open
+    // the payment modal, the same way a Stripe publishable key works.
+    const { keyId } = await this.getCredentials();
+
     return {
       id: order.id,
-      data: { ...order },
+      data: { ...order, key_id: keyId },
     };
   }
 
