@@ -47,7 +47,6 @@ test.describe("Marketing consent checkbox", () => {
       "true"
     )
 
-    await checkoutPage.continueToDelivery()
     await checkoutPage.selectDeliveryMethod(DELIVERY_METHOD_NAME)
     await checkoutPage.continueToPayment()
     await checkoutPage.selectPaymentMethod(PAYMENT_METHOD_NAME)

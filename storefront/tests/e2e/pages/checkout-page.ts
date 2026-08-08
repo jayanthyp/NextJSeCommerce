@@ -17,7 +17,11 @@ export class CheckoutPage {
     this.page = page
   }
 
-  // --- Step 1: shipping address -------------------------------------------
+  // --- Step 1: shipping address + delivery method (one combined screen) ----
+  // Address and delivery share a single ?step=address screen — the "Continue
+  // to payment" button submits both together (it's disabled until a
+  // delivery method is selected), so fill the address, pick a delivery
+  // method, then continue — no separate navigation in between.
 
   async fillShippingAddress(details: ShippingDetails) {
     await expect(this.page.getByTestId("shipping-first-name-input")).toBeVisible()
@@ -32,11 +36,6 @@ export class CheckoutPage {
     await this.page.getByTestId("shipping-email-input").fill(details.email)
   }
 
-  async continueToDelivery() {
-    await this.page.getByTestId("submit-address-button").click()
-    await this.page.waitForURL(/step=delivery/)
-  }
-
   marketingConsentCheckbox() {
     return this.page.getByTestId("marketing-consent-checkbox")
   }
@@ -45,17 +44,20 @@ export class CheckoutPage {
     await this.marketingConsentCheckbox().click()
   }
 
-  // --- Step 2: delivery method ---------------------------------------------
-
   async selectDeliveryMethod(name: string) {
-    await this.page
+    // The address is auto-saved (debounced) once the form is complete, which
+    // is what scopes the delivery-method list down to the cart's actual
+    // region — wait for that to land before picking an option, rather than
+    // racing a still-unscoped (or momentarily empty) list.
+    const option = this.page
       .getByTestId("delivery-option-radio")
       .filter({ hasText: name })
-      .click()
+    await expect(option).toHaveCount(1)
+    await option.click()
   }
 
   async continueToPayment() {
-    await this.page.getByTestId("submit-delivery-option-button").click()
+    await this.page.getByTestId("submit-address-button").click()
     await this.page.waitForURL(/step=payment/)
   }
 

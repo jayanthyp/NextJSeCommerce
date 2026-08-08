@@ -1,9 +1,11 @@
+import { saveShippingAddress } from "@lib/data/cart"
 import { HttpTypes } from "@medusajs/types"
 import { Container } from "@medusajs/ui"
 import Checkbox from "@modules/common/components/checkbox"
 import Input from "@modules/common/components/input"
 import { mapKeys } from "lodash"
-import React, { useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import AddressSelect from "../address-select"
 import CountrySelect from "../country-select"
 import StateSelect from "../state-select"
@@ -82,6 +84,41 @@ const ShippingAddress = ({
       setFormAddress(undefined, customer.email)
     }
   }, [cart]) // Add cart as a dependency
+
+  const router = useRouter()
+  const lastSavedAddress = useRef<string>("")
+
+  const isAddressComplete =
+    !!formData["shipping_address.first_name"] &&
+    !!formData["shipping_address.last_name"] &&
+    !!formData["shipping_address.address_1"] &&
+    !!formData["shipping_address.postal_code"] &&
+    !!formData["shipping_address.city"] &&
+    !!formData["shipping_address.country_code"] &&
+    !!formData.email
+
+  // Delivery-method options are scoped server-side off the cart's own
+  // shipping_address, not the in-progress form state (see
+  // shipping/index.tsx) — auto-save once the address is complete so the
+  // combined address+delivery step can show a correctly scoped delivery
+  // list without a separate "save address" click.
+  useEffect(() => {
+    if (!isAddressComplete) {
+      return
+    }
+
+    const snapshot = JSON.stringify(formData)
+    if (snapshot === lastSavedAddress.current) {
+      return
+    }
+
+    const timeout = setTimeout(() => {
+      lastSavedAddress.current = snapshot
+      saveShippingAddress(formData).then(() => router.refresh())
+    }, 500)
+
+    return () => clearTimeout(timeout)
+  }, [formData, isAddressComplete, router])
 
   const handleChange = (
     e: React.ChangeEvent<

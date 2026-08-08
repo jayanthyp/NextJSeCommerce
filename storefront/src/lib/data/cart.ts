@@ -363,6 +363,45 @@ export async function submitPromotionForm(
   }
 }
 
+/**
+ * Persists the shipping (+ billing, if same) address to the cart as soon as
+ * the address form is complete, without navigating away — the combined
+ * address+delivery step (see addresses/index.tsx, shipping/index.tsx) needs
+ * the cart's shipping_address saved before it can fetch a delivery-method
+ * list scoped to the right country/zone, since that scoping happens
+ * server-side off the cart itself rather than the in-progress form state.
+ */
+export async function saveShippingAddress(addressData: Record<string, any>) {
+  const cartId = await getCartId()
+  if (!cartId) {
+    return
+  }
+
+  const data = {
+    shipping_address: {
+      first_name: addressData["shipping_address.first_name"],
+      last_name: addressData["shipping_address.last_name"],
+      address_1: addressData["shipping_address.address_1"],
+      address_2: "",
+      company: addressData["shipping_address.company"],
+      postal_code: addressData["shipping_address.postal_code"],
+      city: addressData["shipping_address.city"],
+      country_code: addressData["shipping_address.country_code"],
+      province: addressData["shipping_address.province"],
+      phone: addressData["shipping_address.phone"],
+    },
+    email: addressData.email,
+  } as any
+
+  try {
+    await updateCart(data)
+  } catch {
+    // Swallow — this is a background pre-save purely to scope shipping
+    // options; real validation errors surface when the customer submits
+    // the form for real via setAddresses below.
+  }
+}
+
 // TODO: Pass a POJO instead of a form entity here
 export async function setAddresses(currentState: unknown, formData: FormData) {
   try {
@@ -417,8 +456,11 @@ export async function setAddresses(currentState: unknown, formData: FormData) {
     return e.message
   }
 
+  // Address and delivery are now one combined step (see addresses/index.tsx
+  // and shipping/index.tsx's shared isOpen trigger) — this goes straight to
+  // payment instead of an intermediate ?step=delivery.
   redirect(
-    `/${formData.get("shipping_address.country_code")}/checkout?step=delivery`
+    `/${formData.get("shipping_address.country_code")}/checkout?step=payment`
   )
 }
 

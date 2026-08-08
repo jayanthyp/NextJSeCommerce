@@ -56,12 +56,8 @@ test.describe("Order journey", () => {
 
     const checkoutPage = new CheckoutPage(page)
 
-    await test.step("Fill shipping address", async () => {
+    await test.step("Fill shipping address and select delivery method", async () => {
       await checkoutPage.fillShippingAddress(customer)
-      await checkoutPage.continueToDelivery()
-    })
-
-    await test.step("Select delivery method", async () => {
       await checkoutPage.selectDeliveryMethod(DELIVERY_METHOD_NAME)
       await checkoutPage.continueToPayment()
     })
