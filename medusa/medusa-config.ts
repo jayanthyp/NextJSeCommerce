@@ -51,7 +51,10 @@ const authProviders = [
             // Authorized redirect URIs (see .env.example).
             callbackUrl: process.env.STORE_DOMAIN
               ? `https://${process.env.STORE_DOMAIN}/auth/callback/google`
-              : "http://localhost:8000/auth/callback/google",
+              // :3000 to match docker-compose.local.yml's published
+              // storefront port, not :8000 (that's only `npm run dev`'s
+              // port, which doesn't run alongside this backend anyway).
+              : "http://localhost:3000/auth/callback/google",
           },
         },
       ]

@@ -62,3 +62,17 @@ services:
   caddy:
     profiles:
       - proxy
+
+  # Fake SMTP server for local testing — accepts any mail the backend sends
+  # (order confirmations, abandoned-cart reminders, back-in-stock alerts)
+  # without actually delivering it anywhere, and shows the rendered HTML in
+  # a web UI at http://localhost:8025. Point SMTP_HOST=mailpit, SMTP_PORT=
+  # 1025, SMTP_SECURE=false at it; SMTP_USER/SMTP_PASS can be any non-empty
+  # value since Mailpit doesn't enforce auth by default — the backend's own
+  # SMTP_ENABLED gate just requires them to be *present*.
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:1025:1025"
