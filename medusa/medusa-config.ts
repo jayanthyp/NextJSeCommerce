@@ -49,12 +49,17 @@ const authProviders = [
             // returns raw JSON with no redirect, so it can't be this URL —
             // matches the exact value registered in Google Cloud Console's
             // Authorized redirect URIs (see .env.example).
-            callbackUrl: process.env.STORE_DOMAIN
-              ? `https://${process.env.STORE_DOMAIN}/auth/callback/google`
-              // :3000 to match docker-compose.local.yml's published
-              // storefront port, not :8000 (that's only `npm run dev`'s
-              // port, which doesn't run alongside this backend anyway).
-              : "http://localhost:3000/auth/callback/google",
+            // STORE_DOMAIN is commonly "localhost" for local dev (it's used
+            // for other things too, e.g. email template links) — treat that
+            // the same as unset rather than building an unreachable
+            // https://localhost/... URL with no port.
+            callbackUrl:
+              process.env.STORE_DOMAIN && process.env.STORE_DOMAIN !== "localhost"
+                ? `https://${process.env.STORE_DOMAIN}/auth/callback/google`
+                // :3000 to match docker-compose.local.yml's published
+                // storefront port, not :8000 (that's only `npm run dev`'s
+                // port, which doesn't run alongside this backend anyway).
+                : "http://localhost:3000/auth/callback/google",
           },
         },
       ]
