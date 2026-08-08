@@ -167,14 +167,19 @@ export async function signout(countryCode: string) {
   redirect(`/${countryCode}/account`)
 }
 
-export async function transferCart() {
+// authHeaders lets a caller pass a token it just resolved itself rather
+// than relying on getAuthHeaders() reading it back from the cookie — the
+// Google OAuth callback route calls this in the same request it sets
+// _medusa_jwt in, and a Route Handler's cookies() isn't guaranteed to
+// reflect that same-request mutation the way a Server Action's does.
+export async function transferCart(authHeaders?: { authorization: string }) {
   const cartId = await getCartId()
 
   if (!cartId) {
     return
   }
 
-  const headers = await getAuthHeaders()
+  const headers = authHeaders ?? (await getAuthHeaders())
 
   await sdk.store.cart.transferCart(cartId, {}, headers)
 

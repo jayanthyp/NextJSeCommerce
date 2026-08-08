@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { sdk } from "@lib/config"
-import { setAuthToken, getAuthHeaders } from "@lib/data/cookies"
+import { setAuthToken } from "@lib/data/cookies"
 import { transferCart } from "@lib/data/customer"
 import { getBaseURL } from "@lib/util/env"
 
@@ -30,39 +30,50 @@ export async function GET(request: NextRequest) {
       throw new Error("Unexpected multi-step auth response from Google callback")
     }
 
-    await setAuthToken(result)
+    // Threaded through a local variable and passed explicitly to every
+    // call below, rather than round-tripping through setAuthToken() +
+    // getAuthHeaders() mid-request — a Route Handler's cookies() may not
+    // reflect a same-request mutation the same way a Server Action's does
+    // (the emailpass register flow relies on that working, but it's a
+    // Server Action, not a Route Handler; not worth trusting here). Only
+    // one cookies().set() happens at all, right before returning.
+    let token = result
 
     // First-time Google sign-in returns an actor-less token (no linked
-    // Customer yet) — same two-step shape as the emailpass register flow.
-    // No email/name to pass here (Google's redirect only carries `code`
-    // and `state`, not profile data) — the backend resolves those from the
-    // auth identity's own stored provider data via req.auth_context, the
-    // same way /store/customers always has for every other provider.
-    // A failure here just means this identity is already linked to a
-    // customer, which is the normal case for a returning user.
-    const headers = await getAuthHeaders()
-    await sdk.store.customer.create({}, {}, headers).catch(() => null)
+    // Customer yet). No email/name to pass here (Google's redirect only
+    // carries `code` and `state`, not profile data) — the backend resolves
+    // those from the auth identity's own stored provider data via
+    // req.auth_context, the same way /store/customers always has for
+    // every other provider. A failure here just means this identity is
+    // already linked to a customer, which is the normal case for a
+    // returning user.
+    await sdk.store.customer
+      .create({}, {}, { authorization: `Bearer ${token}` })
+      .catch(() => null)
 
-    // Whichever path just ran above, the token set at the top of this
-    // handler is still the ORIGINAL actor-less one — it has no actor_id,
-    // so retrieveCustomer() rejects it even though the identity is now
-    // correctly linked to a customer. sdk.auth.refresh() is exactly what
-    // Medusa's own SDK docs describe calling at this point in the OAuth
-    // flow: exchange it for a token that reflects the linked actor.
-    const refreshed = await sdk.auth.refresh(await getAuthHeaders())
+    // Whichever path just ran above, `token` is still the ORIGINAL
+    // actor-less one — it has no actor_id, so retrieveCustomer() rejects
+    // it even though the identity is now correctly linked to a customer.
+    // sdk.auth.refresh() is exactly what Medusa's own SDK docs describe
+    // calling at this point in the OAuth flow: exchange it for a token
+    // that reflects the linked actor.
+    const refreshed = await sdk.auth.refresh({
+      authorization: `Bearer ${token}`,
+    })
     if (
-      typeof refreshed === "object" &&
-      refreshed !== null &&
-      "token" in refreshed &&
-      !("mfa_required" in refreshed) &&
-      !("verification_required" in refreshed)
+      typeof refreshed !== "object" ||
+      refreshed === null ||
+      !("token" in refreshed) ||
+      "mfa_required" in refreshed ||
+      "verification_required" in refreshed
     ) {
-      await setAuthToken(refreshed.token)
-    } else {
       throw new Error("Unexpected multi-step response refreshing the Google auth token")
     }
+    token = refreshed.token
 
-    await transferCart().catch(() => null)
+    await setAuthToken(token)
+
+    await transferCart({ authorization: `Bearer ${token}` }).catch(() => null)
   } catch (error) {
     return NextResponse.redirect(
       new URL(`/${defaultRegion}/account?error=google-sign-in-failed`, baseUrl)
