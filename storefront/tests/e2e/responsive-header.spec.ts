@@ -59,4 +59,87 @@ test.describe("Responsive header", () => {
 
     await context.close()
   })
+
+  test("utility icons render as a 2x2 grid on mobile and a single row on desktop", async ({
+    browser,
+  }) => {
+    const mobileContext = await browser.newContext({ viewport: MOBILE_VIEWPORT })
+    const mobilePage = await mobileContext.newPage()
+    const mobileProductPage = new ProductPage(mobilePage)
+    await mobileProductPage.goto(COUNTRY_CODE, PRODUCT_HANDLE)
+
+    await expect(mobilePage.getByTestId("nav-utilities")).toHaveCSS("display", "grid")
+    await mobileContext.close()
+
+    const desktopContext = await browser.newContext({
+      viewport: { width: 1280, height: 800 },
+    })
+    const desktopPage = await desktopContext.newPage()
+    const desktopProductPage = new ProductPage(desktopPage)
+    await desktopProductPage.goto(COUNTRY_CODE, PRODUCT_HANDLE)
+
+    await expect(desktopPage.getByTestId("nav-utilities")).toHaveCSS("display", "flex")
+    await desktopContext.close()
+  })
+
+  test("side menu opens as a partial drawer, not a full-screen takeover", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({ viewport: MOBILE_VIEWPORT })
+    const page = await context.newPage()
+    const productPage = new ProductPage(page)
+    await productPage.goto(COUNTRY_CODE, PRODUCT_HANDLE)
+
+    await page.getByTestId("nav-menu-button").click()
+    const panel = page.getByTestId("nav-menu-popup")
+    await expect(panel).toBeVisible()
+
+    const panelBox = await panel.boundingBox()
+    expect(panelBox).not.toBeNull()
+    // 80%-of-375px viewport, capped at 360px -- well short of full-width.
+    expect(panelBox!.width).toBeLessThan(MOBILE_VIEWPORT.width * 0.9)
+
+    await context.close()
+  })
+
+  test("side menu closes on backdrop click and on Escape", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: MOBILE_VIEWPORT })
+    const page = await context.newPage()
+    const productPage = new ProductPage(page)
+    await productPage.goto(COUNTRY_CODE, PRODUCT_HANDLE)
+
+    await page.getByTestId("nav-menu-button").click()
+    await expect(page.getByTestId("nav-menu-popup")).toBeVisible()
+    // Click the backdrop itself, not the panel -- force past the panel's
+    // overlapping hit area at the very edge of the viewport.
+    await page.getByTestId("side-menu-backdrop").click({ position: { x: 350, y: 20 }, force: true })
+    await expect(page.getByTestId("nav-menu-popup")).not.toBeVisible()
+
+    await page.getByTestId("nav-menu-button").click()
+    await expect(page.getByTestId("nav-menu-popup")).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(page.getByTestId("nav-menu-popup")).not.toBeVisible()
+
+    await context.close()
+  })
+
+  test("side menu traps focus while open", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: MOBILE_VIEWPORT })
+    const page = await context.newPage()
+    const productPage = new ProductPage(page)
+    await productPage.goto(COUNTRY_CODE, PRODUCT_HANDLE)
+
+    await page.getByTestId("nav-menu-button").click()
+    const panel = page.getByTestId("nav-menu-popup")
+    await expect(panel).toBeVisible()
+
+    // Tab far more times than there are focusable elements in the panel --
+    // if focus were escaping, it would land outside the panel eventually.
+    for (let i = 0; i < 15; i++) {
+      await page.keyboard.press("Tab")
+      await expect(panel.locator(":focus")).toHaveCount(1)
+    }
+
+    await context.close()
+  })
 })
