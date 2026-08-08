@@ -39,19 +39,40 @@ export default async function Nav() {
             </LocalizedClientLink>
           </div>
 
-          <div className="flex items-center gap-x-6 h-full flex-1 basis-0 justify-end">
-            <div className="flex items-center h-full">
-              <SearchBar />
-            </div>
-            <div className="flex items-center h-full">
-              <ThemeToggle />
-            </div>
-            {regions && (
+          <div className="flex items-center h-full flex-1 basis-0 justify-end">
+            {/* Below `small`, the four utility items pack into a compact
+                2x2 grid instead of wrapping/overflowing a single row --
+                at `small` and up this reverts to the original inline row. */}
+            <div
+              data-testid="nav-utilities"
+              className="grid grid-cols-2 grid-rows-2 gap-x-3 gap-y-1 place-items-center small:flex small:grid-cols-none small:grid-rows-none small:gap-x-6 small:gap-y-0 small:items-center h-full"
+            >
               <div className="flex items-center h-full">
-                <CountrySelect regions={regions} />
+                <SearchBar />
               </div>
-            )}
-            <div className="hidden small:flex items-center gap-x-6 h-full">
+              <div className="flex items-center h-full">
+                <ThemeToggle />
+              </div>
+              {regions && (
+                <div className="flex items-center h-full">
+                  <CountrySelect regions={regions} />
+                </div>
+              )}
+              <Suspense
+                fallback={
+                  <LocalizedClientLink
+                    className="hover:text-ui-fg-base flex gap-2"
+                    href="/cart"
+                    data-testid="nav-cart-link"
+                  >
+                    Cart (0)
+                  </LocalizedClientLink>
+                }
+              >
+                <CartButton />
+              </Suspense>
+            </div>
+            <div className="hidden small:flex items-center gap-x-6 h-full ml-6">
               <LocalizedClientLink
                 className="hover:text-ui-fg-base"
                 href="/account"
@@ -60,19 +81,6 @@ export default async function Nav() {
                 Account
               </LocalizedClientLink>
             </div>
-            <Suspense
-              fallback={
-                <LocalizedClientLink
-                  className="hover:text-ui-fg-base flex gap-2"
-                  href="/cart"
-                  data-testid="nav-cart-link"
-                >
-                  Cart (0)
-                </LocalizedClientLink>
-              }
-            >
-              <CartButton />
-            </Suspense>
           </div>
         </nav>
       </header>
