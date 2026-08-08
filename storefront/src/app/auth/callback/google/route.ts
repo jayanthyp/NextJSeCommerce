@@ -5,6 +5,21 @@ import { setAuthToken } from "@lib/data/cookies"
 import { transferCart } from "@lib/data/customer"
 import { getBaseURL } from "@lib/util/env"
 
+// The actor-less token's payload carries Google's profile data in
+// user_metadata (name/email/picture — confirmed by decoding a real one),
+// which turns out to be the ONLY place this route has access to it: Google's
+// redirect itself only carries `code`/`state`. Reading our own just-issued
+// token's claims is fine — it's signed by our own backend, not something
+// we're trusting from an untrusted source.
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const payload = token.split(".")[1]
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"))
+  } catch {
+    return null
+  }
+}
+
 // Deliberately outside [countryCode] — see loginWithOAuth's comment for why.
 // Lands on the default region's account page rather than trying to restore
 // the exact page the user started from; smuggling the original countryCode
@@ -40,16 +55,33 @@ export async function GET(request: NextRequest) {
     let token = result
 
     // First-time Google sign-in returns an actor-less token (no linked
-    // Customer yet). No email/name to pass here (Google's redirect only
-    // carries `code` and `state`, not profile data) — the backend resolves
-    // those from the auth identity's own stored provider data via
-    // req.auth_context, the same way /store/customers always has for
-    // every other provider. A failure here just means this identity is
+    // Customer yet) — create one. Unlike the emailpass flow, there's no
+    // form data to pull email/name from, so it comes from the token's own
+    // user_metadata claim (see decodeJwtPayload above). POST /store/
+    // customers rejects a body with no email ("Email is required to
+    // create a customer", confirmed against a real request) — it does
+    // NOT auto-resolve it from the auth identity like the comment here
+    // previously assumed. A failure below just means this identity is
     // already linked to a customer, which is the normal case for a
     // returning user.
-    await sdk.store.customer
-      .create({}, {}, { authorization: `Bearer ${token}` })
-      .catch(() => null)
+    const claims = decodeJwtPayload(token)
+    const userMetadata = claims?.user_metadata as
+      | { email?: string; given_name?: string; family_name?: string }
+      | undefined
+
+    if (userMetadata?.email) {
+      await sdk.store.customer
+        .create(
+          {
+            email: userMetadata.email,
+            first_name: userMetadata.given_name,
+            last_name: userMetadata.family_name,
+          },
+          {},
+          { authorization: `Bearer ${token}` }
+        )
+        .catch(() => null)
+    }
 
     // Whichever path just ran above, `token` is still the ORIGINAL
     // actor-less one — it has no actor_id, so retrieveCustomer() rejects

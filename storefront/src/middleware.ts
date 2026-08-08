@@ -129,8 +129,12 @@ export async function middleware(request: NextRequest) {
 
   const countryCode = regionMap && (await getCountryCode(request, regionMap))
 
+  // Exact match, not .includes() — a substring check here would treat any
+  // path segment that merely *contains* a valid 2-letter country code
+  // (e.g. "auth" contains "au") as already region-prefixed, skipping the
+  // redirect for a path that was never actually meant to have one.
   const urlHasCountryCode =
-    countryCode && request.nextUrl.pathname.split("/")[1].includes(countryCode)
+    countryCode && request.nextUrl.pathname.split("/")[1] === countryCode
 
   // if one of the country codes is in the url and the cache id is set, return next
   if (urlHasCountryCode && cacheIdCookie) {
@@ -173,6 +177,13 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|images|assets|png|svg|jpg|jpeg|gif|webp).*)",
+    // `auth` excluded alongside `api`: the Google OAuth callback route
+    // (src/app/auth/callback/google/route.ts) deliberately lives outside
+    // [countryCode] — Google needs one fixed, exactly-matching redirect
+    // URI, which a locale prefix would break. Without this exclusion the
+    // region-prefix redirect below sends it to /us/auth/callback/google
+    // (or whatever the resolved region is), which doesn't exist — a 404
+    // on literally every Google sign-in attempt.
+    "/((?!api|auth|_next/static|_next/image|favicon.ico|images|assets|png|svg|jpg|jpeg|gif|webp).*)",
   ],
 }
