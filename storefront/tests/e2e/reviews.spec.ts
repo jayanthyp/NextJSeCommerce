@@ -72,7 +72,6 @@ test.describe("Reviews", () => {
         countryCode: COUNTRY_CODE,
         email: `checkout-${Date.now()}@example.com`,
       })
-      await checkoutPage.continueToDelivery()
       await checkoutPage.selectDeliveryMethod(DELIVERY_METHOD_NAME)
       await checkoutPage.continueToPayment()
       await checkoutPage.selectPaymentMethod(PAYMENT_METHOD_NAME)
