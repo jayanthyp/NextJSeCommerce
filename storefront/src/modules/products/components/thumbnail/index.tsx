@@ -13,6 +13,7 @@ type ThumbnailProps = {
   className?: string
   "data-testid"?: string
   badges?: React.ReactNode
+  topRightAction?: React.ReactNode
 }
 
 const Thumbnail: React.FC<ThumbnailProps> = ({
@@ -23,6 +24,7 @@ const Thumbnail: React.FC<ThumbnailProps> = ({
   className,
   "data-testid": dataTestid,
   badges,
+  topRightAction,
 }) => {
   const initialImage = thumbnail || images?.[0]?.url
 
@@ -48,6 +50,9 @@ const Thumbnail: React.FC<ThumbnailProps> = ({
         <div className="absolute z-10 top-2 left-2 flex flex-col gap-1">
           {badges}
         </div>
+      )}
+      {topRightAction && (
+        <div className="absolute z-10 top-2 right-2">{topRightAction}</div>
       )}
     </Container>
   )

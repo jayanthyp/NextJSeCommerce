@@ -2,12 +2,12 @@ import React from "react"
 
 import { IconProps } from "types/icon"
 
-const Heart: React.FC<IconProps> = ({
+const Heart: React.FC<IconProps & { filled?: boolean }> = ({
   size = "20",
   color = "currentColor",
   filled = false,
   ...attributes
-}: IconProps & { filled?: boolean }) => {
+}) => {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
