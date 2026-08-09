@@ -176,6 +176,18 @@ jobs:
       - name: Seed the database
         run: docker compose -f docker-compose.yml -f docker-compose.local.yml exec -T backend npx medusa exec ./src/scripts/seed.js
 
+      # seed.js only creates the "Europe" region (gb/de/dk/se/fr/es/it). The
+      # storefront's SELECTABLE_COUNTRY_CODES (see storefront/src/lib/constants.tsx,
+      # from issue #15) restricts the country-select dropdown to India/Australia
+      # only, and production already has those regions via this same script
+      # (see docs/india-launch-readiness.md's "Confirmed already in place" note)
+      # — CI's ephemeral stack never ran it, so every `/in/...` and `/au/...`
+      # URL 404'd outright (middleware can't resolve a region for an unlisted
+      # country), which is what was actually breaking e2e on every spec that
+      # navigates through a country-coded URL (root-caused on issue #33/#28).
+      - name: Add India/Australia/etc regions (matching production setup)
+        run: docker compose -f docker-compose.yml -f docker-compose.local.yml exec -T backend npx medusa exec ./src/scripts/add-global-regions.js
+
       - name: Create a temp admin user to read the publishable key
         run: docker compose -f docker-compose.yml -f docker-compose.local.yml exec -T backend npx medusa user -e ci@test.local -p CiTestPassword123!
 
