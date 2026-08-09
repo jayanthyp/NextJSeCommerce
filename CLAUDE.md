@@ -13,10 +13,18 @@ it, not a required local gate.
 
 ## GitHub-Issues-driven dev loop
 
-This repo can run autonomously off GitHub Issues: `/loop 3m /dev-loop` polls for ready/blocked issues,
-implements them, and opens PRs, using issue labels (`status:ready-for-dev` / `in-progress` / `blocked`
-/ `in-review`, `priority:high/medium/low`) as the state machine — see
-`.claude/commands/dev-loop.md` for the full per-cycle protocol.
+This repo can run autonomously off GitHub Issues: `/loop 3m /dev-loop` polls **only**
+`status:ready-for-dev` issues, implements them, runs non-e2e tests (unit + integration — dev-loop
+never runs the Playwright suite itself), and opens PRs, using issue labels as a state machine — see
+`.claude/commands/dev-loop.md` for the full per-cycle protocol. The `quality-analyst` agent
+(`.claude/agents/quality-analyst.md`) is the next stage after dev-loop: it polls
+`status:ready-for-qa`, runs the Playwright E2E suite against the PR branch in an isolated
+docker-compose environment, and routes the issue to `status:in-review` (pass, ready for human merge
+review) or back to `status:blocked` (fail). A human technical lead reviews the `status:blocked` queue
+directly (from either dev-loop's own blocking or a failed QA run) and relabels back to
+`status:ready-for-dev` once resolved — dev-loop does not poll `status:blocked` at all.
+Full pipeline: `status:ready-for-dev` → `in-progress` (dev-loop) → `ready-for-qa` → `qa-in-progress`
+(quality-analyst) → `in-review` or `blocked` (technical lead), plus `priority:high/medium/low`.
 
 This applies whether or not the loop is actively running — any autonomous or semi-autonomous session
 working this repo follows the same boundary:
