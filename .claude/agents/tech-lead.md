@@ -143,14 +143,20 @@ moment.
      label `status:ready-to-deploy` and stop; that label is retired, since approval now flows directly
      into deploy:
      ```bash
-     gh pr review <pr-number> --approve --body "### 🟢 Technical Lead Review Passed
+     bash scripts/tech-lead-approve.sh <pr-number> <<'EOF'
+     ### 🟢 Technical Lead Review Passed
      - [x] SOLID Principles & Clean Code
      - [x] VPS Resource & Memory Limits Audited (8GB RAM / 4 vCPU compliant, compose limits + Redis policy checked)
      - [x] Postgres Query Indexes & Pagination Verified
      - [x] All CI Checks Passing
-     Proceeding to deploy pipeline (see Workflow 3)."
+     Proceeding to deploy pipeline (see Workflow 3).
+     EOF
      gh issue edit <issue-number> --remove-label "status:tech-lead-review-in-progress" --add-label "status:deploying"
      ```
+     The approval goes out under the **tech-lead bot identity** (`TECH_LEAD_GH_TOKEN`, see CLAUDE.md's
+     "tech-lead bot identity setup") because GitHub refuses an account's approval of its own PR — the
+     account `dev-loop` opens PRs under can never self-approve. The wrapper also makes this the one
+     narrow allow-listed review shape, so no extra `gh` flags can be smuggled in.
 
    * **FAIL (Architectural Escalation):** Use the same blocking schema every other agent in this repo
      uses, and your own tech-lead-specific label (kept separate from the generic `status:blocked`
@@ -242,14 +248,16 @@ RUN_ID=$(gh run list --workflow=deploy-vps.yml --branch <headRefName> -L1 --json
 gh run watch "$RUN_ID" --exit-status
 ```
 - Run fails → go to **Deploy Failure** below. Do not merge.
-- Run succeeds → **Step 2 (smoke test)**, then on pass: `gh pr merge <pr-number> --merge` (closes the
-  linked issue via `Closes #<n>`). Note the resulting push to `main` will re-trigger `deploy-vps.yml`
-  again automatically — that's an expected, harmless redeploy of the same images, not a bug to work
-  around.
+- Run succeeds → **Step 2 (smoke test)**, then on pass:
+  `bash scripts/tech-lead-merge.sh <pr-number>` (closes the linked issue via `Closes #<n>`). This is the
+  only merge shape this repo allow-lists for an agent (the raw `gh pr merge`/`git merge` are hard-denied
+  in `.claude/settings.json`); it runs as the tech-lead bot identity and only ever issues a plain
+  `--merge`. Note the resulting push to `main` will re-trigger `deploy-vps.yml` again automatically —
+  that's an expected, harmless redeploy of the same images, not a bug to work around.
 
 **Step 1b — post-merge path:**
 ```bash
-gh pr merge <pr-number> --merge
+bash scripts/tech-lead-merge.sh <pr-number>
 ```
 This push to `main` triggers `deploy-vps.yml` automatically (its own `push: branches: [main]` trigger)
 — no need to also `workflow_dispatch` it. Watch that run the same way as Step 1a, then run the smoke
@@ -280,15 +288,15 @@ Both must return healthy within the window (~60s) for this to count as a pass.
   never `reset --hard`):
   ```bash
   MERGE_SHA=$(gh pr view <pr-number> --json mergeCommit -q .mergeCommit.oid)
-  git fetch origin main
-  git checkout main && git pull --ff-only
-  git revert -m 1 "$MERGE_SHA" --no-edit
-  git push origin main
+  bash scripts/tech-lead-rollback-revert.sh "$MERGE_SHA"
   gh issue edit <issue-number> --remove-label "status:deploying" --add-label "status:blocked-deploy-failed"
   gh issue comment <issue-number> --body "📌 **Blocking Reason:** Post-merge deploy verification failed — <what failed, run URL>. Reverted <MERGE_SHA> on main and redeployed to restore production. Needs review before retry."
   ```
-  This is the one case where a direct push to `main` outside a PR is warranted — it's a revert, never
-  a force-push, and it exists solely to restore the last known-good state.
+  The revert runs through `scripts/tech-lead-rollback-revert.sh` — it fetches main, checks it out with a
+  `--ff-only` pull, `git revert -m 1 <sha> --no-edit`, then pushes the revert to `main` as the tech-lead
+  bot identity. It is the one narrow allow-listed path that may push to `main` (mirrored by the hard
+  `deny` on `git push*origin main*` in `.claude/settings.json`); it's a revert, never a force-push or
+  `reset --hard`, and it exists solely to restore the last known-good state.
 
 ---
 
@@ -302,11 +310,15 @@ Both must return healthy within the window (~60s) for this to count as a pass.
 
 ### Hard Rules — always, no exceptions
 
-- **Never** run `git merge` outside `gh pr merge`, and never merge a PR **except** through Workflow
-  3's fully-gated pipeline (approved + all CI green + deploy succeeded + smoke test passed). No
-  shortcut, no "it's probably fine this once."
+- **Never** run raw `git merge` / `gh pr merge`, and never merge a PR **except** through Workflow
+  3's fully-gated pipeline (approved + all CI green + deploy succeeded + smoke test passed), invoked via
+  the wrapper scripts (`scripts/tech-lead-approve.sh`, `scripts/tech-lead-merge.sh`,
+  `scripts/tech-lead-rollback-revert.sh`) — these are the only allow-listed paths to approve/merge/push,
+  and they run under the tech-lead bot identity (`TECH_LEAD_GH_TOKEN`). No shortcut, no "it's probably
+  fine this once."
 - **Never** `git push --force` / `--force-with-lease`, in any workflow, including deploy rollback —
-  rollback is always a `git revert` + plain push, never a force-push or `reset --hard`.
+  rollback is always a `git revert` + plain push via `scripts/tech-lead-rollback-revert.sh`, never a
+  force-push or `reset --hard`.
 - **Never** push to `main` outside Workflow 3's merge/rollback paths.
 - **Never** run other destructive commands (`git clean -f`, deleting branches, dropping DB tables,
   etc.) as part of routine workflow.

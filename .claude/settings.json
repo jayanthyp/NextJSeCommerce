@@ -17,7 +17,10 @@
       "Bash(cd storefront && npm run test:*)",
       "Bash(cd storefront && npx playwright test*)",
       "Bash(npm run test:*)",
-      "Bash(npx playwright test*)"
+      "Bash(npx playwright test*)",
+      "Bash(bash scripts/tech-lead-approve.sh *)",
+      "Bash(bash scripts/tech-lead-merge.sh *)",
+      "Bash(bash scripts/tech-lead-rollback-revert.sh *)"
     ],
     "deny": [
       "Bash(git push --force*)",
