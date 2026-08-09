@@ -111,5 +111,73 @@ medusaIntegrationTestRunner({
         expect(approvedListData.reviews[0].id).toEqual(postData.review.id)
       })
     })
+
+    describe("Store reviews summary", () => {
+      const productA = "prod_summary_test_a"
+      const productB = "prod_summary_test_b"
+
+      it("returns an empty summary map when no product_id is given", async () => {
+        const { data } = await api.get(`/store/reviews/summary`)
+        expect(data.summaries).toEqual({})
+      })
+
+      it("aggregates approved-only average + count per product, across multiple ids in one request", async () => {
+        const reviewsService: ReviewsModuleService =
+          getContainer().resolve(REVIEWS_MODULE)
+
+        // Product A: two approved reviews (5, 3) and one still-pending
+        // review that must not count toward the average.
+        await reviewsService.createReviews([
+          {
+            product_id: productA,
+            order_id: "order_fake_1",
+            customer_id: "cus_fake",
+            customer_name: "A",
+            rating: 5,
+            content: "Great",
+            status: "approved",
+          },
+          {
+            product_id: productA,
+            order_id: "order_fake_2",
+            customer_id: "cus_fake",
+            customer_name: "B",
+            rating: 3,
+            content: "Fine",
+            status: "approved",
+          },
+          {
+            product_id: productA,
+            order_id: "order_fake_3",
+            customer_id: "cus_fake",
+            customer_name: "C",
+            rating: 1,
+            content: "Not yet moderated",
+            status: "pending",
+          },
+        ])
+
+        // Product B: one approved review — also verifies a product with no
+        // reviews at all (never queried here) simply has no entry.
+        await reviewsService.createReviews([
+          {
+            product_id: productB,
+            order_id: "order_fake_4",
+            customer_id: "cus_fake",
+            customer_name: "D",
+            rating: 4,
+            content: "Good",
+            status: "approved",
+          },
+        ])
+
+        const { data } = await api.get(
+          `/store/reviews/summary?product_id=${productA}&product_id=${productB}`
+        )
+
+        expect(data.summaries[productA]).toEqual({ average: 4, count: 2 })
+        expect(data.summaries[productB]).toEqual({ average: 4, count: 1 })
+      })
+    })
   },
 })

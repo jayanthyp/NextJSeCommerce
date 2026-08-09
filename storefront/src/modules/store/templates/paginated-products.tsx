@@ -1,5 +1,6 @@
 import { listProductsWithSort } from "@lib/data/products"
 import { getRegion } from "@lib/data/regions"
+import { listProductReviewSummaries } from "@lib/data/reviews"
 import ProductPreview from "@modules/products/components/product-preview"
 import { Pagination } from "@modules/store/components/pagination"
 import { SortOptions } from "@modules/store/components/refinement-list/sort-products"
@@ -66,6 +67,12 @@ export default async function PaginatedProducts({
 
   const totalPages = Math.ceil(count / PRODUCT_LIMIT)
 
+  // One batch call for the whole page rather than each card fetching its
+  // own reviews — see listProductReviewSummaries.
+  const reviewSummaries = await listProductReviewSummaries(
+    products.map((p) => p.id).filter(Boolean) as string[]
+  )
+
   return (
     <>
       <ul
@@ -75,7 +82,11 @@ export default async function PaginatedProducts({
         {products.map((p) => {
           return (
             <li key={p.id}>
-              <ProductPreview product={p} region={region} />
+              <ProductPreview
+                product={p}
+                region={region}
+                reviewSummary={p.id ? reviewSummaries[p.id] : undefined}
+              />
             </li>
           )
         })}
