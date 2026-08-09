@@ -224,6 +224,25 @@ jobs:
           done
           echo "Storefront never became healthy" && exit 1
 
+      # `backend` has `env_file: [.env]` in docker-compose.yml, so it loads the
+      # whole file, not just the vars it lists under `environment:`. The
+      # previous step's `.env` append (publishable/search keys) therefore
+      # changes backend's config hash too — even though that step's `up -d
+      # --build storefront` only targeted storefront, compose silently
+      # recreates backend as a side effect. Playwright then started against a
+      # backend that could still be mid-restart, causing product-data calls to
+      # intermittently return nothing (root-caused on issue #28 after the
+      # PR #34 timeout theory turned out not to be the actual cause).
+      - name: Wait for backend to be healthy (post-storefront-rebuild)
+        run: |
+          for i in $(seq 1 30); do
+            status=$(docker compose -f docker-compose.yml -f docker-compose.local.yml ps backend --format '{{.Status}}')
+            echo "$status"
+            echo "$status" | grep -q healthy && exit 0
+            sleep 5
+          done
+          echo "Backend never became healthy after the storefront rebuild recreated it" && exit 1
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
