@@ -1,5 +1,6 @@
 ---
-description: One cycle of the GitHub-Issues-driven autonomous dev loop — check blocked issues for replies, pick up the next ready one, implement, test, and open a PR.
+description: One cycle of the GitHub-Issues-driven autonomous dev loop — check blocked issues for replies, pick up the next ready one, implement, test, open a PR, and hand it off to QA.
+model: sonnet
 ---
 
 Run exactly one cycle of the dev loop against `jayanthyp/NextJSeCommerce`, in this order. Do not ask
@@ -119,9 +120,12 @@ cycle it's used. This is the one point per cycle that isn't fully hands-off.
 `Closes #<n>` in the PR body is load-bearing: merging the PR auto-closes the issue, which is this
 workflow's *only* "Done" signal. Never add a `status:done` label or otherwise mark it Done yourself.
 
+Hand the issue to QA, not straight to review — `quality-analyst` polls `status:ready-for-qa` and runs
+the E2E suite (desktop + mobile) against this PR's branch before it ever reaches `tech-lead`:
+
 ```
-gh issue edit <n> --repo jayanthyp/NextJSeCommerce --remove-label "status:in-progress" --add-label "status:in-review"
-gh issue comment <n> --repo jayanthyp/NextJSeCommerce --body "Opened <PR URL>. Ran: <test summary>."
+gh issue edit <n> --repo jayanthyp/NextJSeCommerce --remove-label "status:in-progress" --add-label "status:ready-for-qa"
+gh issue comment <n> --repo jayanthyp/NextJSeCommerce --body "Opened <PR URL>. Ran: <test summary>. Handing off to QA (status:ready-for-qa)."
 ```
 
 ## Hard rules — always, no exceptions
