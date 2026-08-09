@@ -13,18 +13,25 @@ it, not a required local gate.
 
 ## GitHub-Issues-driven dev loop
 
-This repo can run autonomously off GitHub Issues: `/loop 3m /dev-loop` polls for ready/blocked issues,
-implements them, and opens PRs, using issue labels (`status:ready-for-ui-work` / `ready-for-dev` /
-`in-progress` / `ready-for-qa` / `in-review` / `blocked`, plus `tech-lead`'s
-`blocked-architecture-review` / `blocked-deploy-failed`, and `priority:high/medium/low`) as the state
-machine. A set of `claude` agents (`.claude/agents/*.md`) run alongside dev-loop to fill in the other
-roles: `business-analyst` files issues, `ui-designer` refines UI specs, `quality-analyst` runs isolated
-E2E on `status:ready-for-qa` PRs, and `tech-lead` audits and (when fully gated) merges — see
-`.claude/commands/dev-loop.md` and `.claude/agents/` for the full per-cycle protocol.
+This repo can run autonomously off GitHub Issues: `/loop 3m /dev-loop` polls **only**
+`status:ready-for-dev` issues (never `status:blocked` — see below), implements them, runs non-e2e tests
+(unit + integration; dev-loop never runs the Playwright suite itself), and opens PRs, using issue labels
+(`status:ready-for-ui-work` / `ready-for-dev` / `in-progress` / `ready-for-qa` / `qa-in-progress` /
+`in-review` / `blocked`, plus `tech-lead`'s `blocked-architecture-review` / `blocked-deploy-failed`, and
+`priority:high/medium/low`) as the state machine. A set of `claude` agents (`.claude/agents/*.md`) run
+alongside dev-loop to fill in the other roles: `business-analyst` files issues, `ui-designer` refines UI
+specs, `quality-analyst` runs isolated E2E on `status:ready-for-qa` PRs, and `tech-lead` audits and (when
+fully gated) merges — see `.claude/commands/dev-loop.md` and `.claude/agents/` for the full per-cycle
+protocol.
 
 The intended flow is: `ready-for-dev` → (dev-loop) `ready-for-qa` → (quality-analyst) `in-review` →
 (tech-lead) approved & deployed → merged. When a PR is opened, dev-loop hands the issue to
 `status:ready-for-qa`, not straight to review, so quality-analyst's E2E stage runs before tech-lead.
+
+`status:blocked` is owned exclusively by `tech-lead`, whether the block came from dev-loop's own
+ambiguity check or from a `quality-analyst` QA failure — dev-loop does not poll or resolve this label
+itself. `tech-lead` relabels a resolved issue back to `status:ready-for-dev` (always clearing the
+assignee set during the original dev-loop pickup, so dev-loop's `no:assignee` poll can find it again).
 
 This applies whether or not the loop is actively running — any autonomous or semi-autonomous session
 working this repo follows the same boundary:
