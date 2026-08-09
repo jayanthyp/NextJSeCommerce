@@ -175,16 +175,31 @@ export async function addToCart({
 export async function addMultipleToCart(
   variantIds: string[],
   countryCode: string
-) {
+): Promise<{ failedCount: number }> {
   const cart = await getOrSetCart(countryCode)
 
   if (!cart) {
     throw new Error("Error retrieving or creating cart")
   }
 
+  // Every item is still attempted even if an earlier one fails (e.g. one
+  // variant out of stock shouldn't block the rest) — but failures used to be
+  // swallowed entirely here, which let the caller report success while the
+  // cart silently ended up short. Returning a failure count (rather than
+  // throwing) is deliberate: Next.js redacts a thrown Server Action error's
+  // message in production builds down to an opaque digest, so a caller
+  // couldn't show anything useful anyway — a plain return value gets the
+  // real outcome to the client UI instead.
+  let failedCount = 0
+
   for (const variantId of variantIds) {
-    await createLineItem(cart.id, variantId, 1).catch(() => void 0)
+    await createLineItem(cart.id, variantId, 1).catch((err) => {
+      console.error("Failed to add line item", variantId, err)
+      failedCount += 1
+    })
   }
+
+  return { failedCount }
 }
 
 export async function updateLineItem({

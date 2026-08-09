@@ -36,9 +36,15 @@ export class CartPage {
   async addAllSuggestedToCart() {
     const button = this.page.getByTestId("add-all-suggested-button")
     await button.click()
-    // Adds are sequential (see add-all-button.tsx), so this is N Server
-    // Action round trips back to back, not one — 15s was too tight under
-    // CI's variable load and intermittently flaked here.
-    await expect(button).toBeEnabled({ timeout: 30_000 })
+    // Deliberately not waiting on the button re-enabling here: adds are
+    // sequential (see add-all-button.tsx), and how long that intermediate
+    // loading state lasts under CI's variable load isn't actually what this
+    // flow needs to guarantee — the cart reaching its final item count is.
+    // Gating on the button's disabled→enabled transition instead added a
+    // second, tighter timeout on top of that real one and was the actual
+    // source of this test's repeated flakiness (see git history on this
+    // file/frequently-bought-together.spec.ts) despite several rounds of
+    // raising it. The caller's row-count assertion is the real success
+    // condition and already has its own generous timeout.
   }
 }
