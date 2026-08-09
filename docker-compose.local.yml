@@ -20,9 +20,14 @@
 # =============================================================================
 
 services:
-  # Host ports are overridable because a dev machine usually already has a
-  # Postgres or Redis bound to the default port from another project. The
-  # container-side ports never change, so nothing inside the stack cares.
+  # Host ports are overridable (LOCAL_*_PORT, defaulting to the values below)
+  # so a second stack — e.g. the quality-analyst agent's isolated
+  # `-p qa-issue-<n>` project — can run alongside a human's already-running
+  # default stack without a port collision. The container-side ports never
+  # change, so nothing inside the stack cares. Note: if you override
+  # LOCAL_BACKEND_PORT, also update NEXT_PUBLIC_MEDUSA_BACKEND_URL and
+  # MEDUSA_BACKEND_URL in .env to match — that URL is baked into the
+  # storefront image at build time and browser-side code calls it directly.
   postgres:
     ports:
       - "127.0.0.1:${LOCAL_PG_PORT:-5433}:5432"
@@ -40,7 +45,7 @@ services:
 
   backend:
     ports:
-      - "9000:9000"
+      - "${LOCAL_BACKEND_PORT:-9000}:9000"
     environment:
       # Verbose logs are worth the noise locally.
       LOG_LEVEL: debug
@@ -53,7 +58,7 @@ services:
 
   storefront:
     ports:
-      - "3000:3000"
+      - "${LOCAL_STOREFRONT_PORT:-3000}:3000"
 
   # Parked behind a profile so a plain `up -d` skips it. Nothing here has a
   # public domain, so Caddy would spend its time failing ACME challenges.
@@ -74,5 +79,5 @@ services:
     image: axllent/mailpit:latest
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8025:8025"
-      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:${LOCAL_MAILPIT_PORT:-8025}:8025"
+      - "127.0.0.1:${LOCAL_MAILPIT_SMTP_PORT:-1025}:1025"
