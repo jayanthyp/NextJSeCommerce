@@ -67,9 +67,10 @@ test.describe("Reviews", () => {
         firstName: "Ada",
         lastName: "Tester",
         address: "123 Test Street",
-        postalCode: "10115",
-        city: "Berlin",
+        postalCode: "2000",
+        city: "Sydney",
         countryCode: COUNTRY_CODE,
+        province: "New South Wales",
         email: `checkout-${Date.now()}@example.com`,
       })
       await checkoutPage.selectDeliveryMethod(DELIVERY_METHOD_NAME)
