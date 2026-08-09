@@ -14,6 +14,7 @@ type ThumbnailProps = {
   "data-testid"?: string
   badges?: React.ReactNode
   topRightAction?: React.ReactNode
+  hoverAction?: React.ReactNode
 }
 
 const Thumbnail: React.FC<ThumbnailProps> = ({
@@ -25,6 +26,7 @@ const Thumbnail: React.FC<ThumbnailProps> = ({
   "data-testid": dataTestid,
   badges,
   topRightAction,
+  hoverAction,
 }) => {
   const initialImage = thumbnail || images?.[0]?.url
 
@@ -53,6 +55,11 @@ const Thumbnail: React.FC<ThumbnailProps> = ({
       )}
       {topRightAction && (
         <div className="absolute z-10 top-2 right-2">{topRightAction}</div>
+      )}
+      {hoverAction && (
+        <div className="absolute z-10 bottom-0 inset-x-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+          {hoverAction}
+        </div>
       )}
     </Container>
   )
