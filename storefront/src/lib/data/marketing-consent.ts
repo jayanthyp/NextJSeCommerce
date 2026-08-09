@@ -13,3 +13,28 @@ export const captureMarketingConsent = async (email: string) => {
     })
     .catch(() => null)
 }
+
+export type NewsletterSignupResult =
+  | { success: true; alreadySubscribed: boolean }
+  | { success: false; message: string }
+
+// Footer newsletter signup — unlike captureMarketingConsent above, this
+// form has its own success/error UI to drive, so it can't swallow errors
+// the same way; the caller needs to know whether it worked.
+export const subscribeToNewsletter = async (
+  email: string
+): Promise<NewsletterSignupResult> => {
+  try {
+    const response = (await sdk.client.fetch(`/store/marketing-consent`, {
+      method: "POST",
+      body: { email, source: "footer_newsletter" },
+    })) as { already_subscribed: boolean }
+
+    return { success: true, alreadySubscribed: response.already_subscribed }
+  } catch {
+    return {
+      success: false,
+      message: "Please enter a valid email address.",
+    }
+  }
+}
