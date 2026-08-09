@@ -4,31 +4,7 @@ import { useActionState, useState } from "react"
 import { Button, Text, Textarea, Input } from "@medusajs/ui"
 
 import { createReview, StoreReview } from "@lib/data/reviews"
-
-const StarRating = ({
-  rating,
-  onChange,
-}: {
-  rating: number
-  onChange?: (value: number) => void
-}) => {
-  return (
-    <div className="flex gap-x-1">
-      {[1, 2, 3, 4, 5].map((value) => (
-        <button
-          key={value}
-          type="button"
-          disabled={!onChange}
-          onClick={() => onChange?.(value)}
-          className={value <= rating ? "text-ui-fg-interactive" : "text-ui-fg-muted"}
-          aria-label={`${value} star${value > 1 ? "s" : ""}`}
-        >
-          ★
-        </button>
-      ))}
-    </div>
-  )
-}
+import StarRating from "@modules/common/components/star-rating"
 
 const ReviewForm = ({ productId }: { productId: string }) => {
   const [rating, setRating] = useState(0)

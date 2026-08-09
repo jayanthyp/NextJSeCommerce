@@ -1,9 +1,11 @@
-import { Text } from "@medusajs/ui"
+import { Text, clx } from "@medusajs/ui"
 import { listProducts } from "@lib/data/products"
 import { getProductPrice } from "@lib/util/get-product-price"
 import { retrieveCustomer } from "@lib/data/customer"
+import { ReviewSummary } from "@lib/data/reviews"
 import { HttpTypes } from "@medusajs/types"
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
+import StarRating from "@modules/common/components/star-rating"
 import Thumbnail from "../thumbnail"
 import PreviewPrice, { DiscountBadge } from "./price"
 import WishlistQuickAction from "./wishlist-quick-action"
@@ -13,10 +15,17 @@ export default async function ProductPreview({
   product,
   isFeatured,
   region,
+  reviewSummary,
 }: {
   product: HttpTypes.StoreProduct
   isFeatured?: boolean
   region: HttpTypes.StoreRegion
+  // Only supplied by callers that already batch-fetch review summaries for
+  // the whole page (see paginated-products.tsx) — omitted elsewhere
+  // (related products, recently viewed, etc.) simply hides the rating row,
+  // rather than every ProductPreview instance fetching its own and
+  // reintroducing the N+1 this was built to avoid.
+  reviewSummary?: ReviewSummary
 }) {
   // const pricedProduct = await listProducts({
   //   regionId: region.id,
@@ -52,6 +61,8 @@ export default async function ProductPreview({
     (!singleVariant.manage_inventory ||
       singleVariant.allow_backorder ||
       (singleVariant.inventory_quantity ?? 0) > 0)
+
+  const showRating = !!reviewSummary && reviewSummary.count > 0
 
   return (
     <LocalizedClientLink href={`/products/${product.handle}`} className="group">
@@ -95,7 +106,23 @@ export default async function ProductPreview({
             ) : undefined
           }
         />
-        <div className="flex txt-compact-medium mt-4 justify-between">
+        {showRating && (
+          <div
+            className="flex items-center gap-x-1 mt-2 text-xs"
+            data-testid="product-rating"
+          >
+            <StarRating rating={Math.round(reviewSummary!.average)} />
+            <Text className="text-ui-fg-subtle text-xsmall-regular">
+              ({reviewSummary!.count})
+            </Text>
+          </div>
+        )}
+        <div
+          className={clx("flex txt-compact-medium justify-between", {
+            "mt-1": showRating,
+            "mt-4": !showRating,
+          })}
+        >
           <Text className="text-ui-fg-subtle" data-testid="product-title">
             {product.title}
           </Text>
