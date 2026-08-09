@@ -27,3 +27,19 @@ export default async function PreviewPrice({ price }: { price: VariantPrice }) {
     </>
   )
 }
+
+// Renders no badge for a 0% (or missing) diff so we never show "-0%".
+export function DiscountBadge({ price }: { price?: VariantPrice | null }) {
+  if (!price || price.price_type !== "sale" || price.percentage_diff === "0") {
+    return null
+  }
+
+  return (
+    <Text
+      className="bg-ui-bg-base text-ui-fg-interactive rounded-full px-2 py-0.5 text-xsmall-regular"
+      data-testid="discount-badge"
+    >
+      -{price.percentage_diff}%
+    </Text>
+  )
+}

@@ -12,6 +12,7 @@ type ThumbnailProps = {
   isFeatured?: boolean
   className?: string
   "data-testid"?: string
+  badges?: React.ReactNode
 }
 
 const Thumbnail: React.FC<ThumbnailProps> = ({
@@ -21,6 +22,7 @@ const Thumbnail: React.FC<ThumbnailProps> = ({
   isFeatured,
   className,
   "data-testid": dataTestid,
+  badges,
 }) => {
   const initialImage = thumbnail || images?.[0]?.url
 
@@ -42,6 +44,11 @@ const Thumbnail: React.FC<ThumbnailProps> = ({
       data-testid={dataTestid}
     >
       <ImageOrPlaceholder image={initialImage} size={size} />
+      {badges && (
+        <div className="absolute z-10 top-2 left-2 flex flex-col gap-1">
+          {badges}
+        </div>
+      )}
     </Container>
   )
 }
