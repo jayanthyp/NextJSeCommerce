@@ -74,6 +74,17 @@ export class CheckoutPage {
 
   // --- Step 4: review + place order ------------------------------------------
 
+  orderNoteInput() {
+    return this.page.getByTestId("order-note-input")
+  }
+
+  async fillOrderNote(note: string) {
+    await this.orderNoteInput().fill(note)
+    // Debounced auto-save (500ms), matching the shipping-address pattern —
+    // give it room to persist before placing the order.
+    await this.page.waitForTimeout(700)
+  }
+
   async placeOrder() {
     const placeOrder = this.page.getByTestId("submit-order-button")
     await expect(placeOrder).toBeEnabled()
