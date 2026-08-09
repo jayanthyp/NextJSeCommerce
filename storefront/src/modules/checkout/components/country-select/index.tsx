@@ -3,6 +3,7 @@ import { forwardRef, useImperativeHandle, useMemo, useRef } from "react"
 import NativeSelect, {
   NativeSelectProps,
 } from "@modules/common/components/native-select"
+import { SELECTABLE_COUNTRY_CODES } from "@lib/constants"
 import { HttpTypes } from "@medusajs/types"
 
 const CountrySelect = forwardRef<
@@ -23,10 +24,15 @@ const CountrySelect = forwardRef<
       return []
     }
 
-    return region.countries?.map((country) => ({
-      value: country.iso_2,
-      label: country.display_name,
-    }))
+    return region.countries
+      ?.filter(
+        (country) =>
+          country.iso_2 && SELECTABLE_COUNTRY_CODES.includes(country.iso_2)
+      )
+      .map((country) => ({
+        value: country.iso_2,
+        label: country.display_name,
+      }))
   }, [region])
 
   return (

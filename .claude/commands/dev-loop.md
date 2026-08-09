@@ -1,11 +1,19 @@
 ---
 description: One cycle of the GitHub-Issues-driven autonomous dev loop — pick up the next status:ready-for-dev issue, implement, run non-e2e tests, and open a PR for the quality-analyst agent to e2e-test.
+model: sonnet
 ---
 
 Run exactly one cycle of the dev loop against `jayanthyp/NextJSeCommerce`, in this order. Do not ask
 the user anything mid-cycle — if something is genuinely ambiguous, that's what the Blocked protocol
-below is for. Start every cycle's report with the current local date/time, whether or not there's
-anything to do this cycle.
+below is for.
+
+## 0. Announce the poll time
+
+Before doing anything else, print a line to the chat (plain text, not just a tool call) stating the
+current local timestamp, e.g. `Polling at 2026-08-08 15:20:00`. Get the real time from the environment
+(e.g. `date` via Bash) rather than guessing — the person running this loop isn't necessarily watching
+every cycle, and this is how they can tell from the IDE chat alone when each poll actually happened,
+without digging into cron/task logs.
 
 ## Blocked issues are no longer this loop's concern
 
@@ -119,6 +127,9 @@ cycle it's used. This is the one point per cycle that isn't fully hands-off.
 
 `Closes #<n>` in the PR body is load-bearing: merging the PR auto-closes the issue, which is this
 workflow's *only* "Done" signal. Never add a `status:done` label or otherwise mark it Done yourself.
+
+Hand the issue to QA, not straight to review — `quality-analyst` polls `status:ready-for-qa` and runs
+the E2E suite (desktop + mobile) against this PR's branch before it ever reaches `tech-lead`:
 
 ```
 gh issue edit <n> --repo jayanthyp/NextJSeCommerce --remove-label "status:in-progress" --add-label "status:ready-for-qa"
