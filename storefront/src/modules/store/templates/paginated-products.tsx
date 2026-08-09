@@ -2,12 +2,12 @@ import { listProductsWithSort } from "@lib/data/products"
 import { getRegion } from "@lib/data/regions"
 import { listProductReviewSummaries } from "@lib/data/reviews"
 import ProductPreview from "@modules/products/components/product-preview"
-import { Pagination } from "@modules/store/components/pagination"
 import { SortOptions } from "@modules/store/components/refinement-list/sort-products"
+import InfiniteProductGrid from "./infinite-product-grid"
 
-const PRODUCT_LIMIT = 12
+export const PRODUCT_LIMIT = 12
 
-type PaginatedProductsParams = {
+export type PaginatedProductsParams = {
   limit: number
   collection_id?: string[]
   category_id?: string[]
@@ -15,23 +15,22 @@ type PaginatedProductsParams = {
   order?: string
 }
 
-export default async function PaginatedProducts({
+// Shared by this (page 1, server-rendered) and load-more-products.tsx
+// (pages 2+, fetched client-side by InfiniteProductGrid) so both build an
+// identical query — one place to change if these filters ever do.
+export const buildProductQueryParams = ({
   sortBy,
-  page,
   collectionId,
   categoryId,
   productsIds,
-  countryCode,
 }: {
   sortBy?: SortOptions
-  page: number
   collectionId?: string
   categoryId?: string
   productsIds?: string[]
-  countryCode: string
-}) {
+}): PaginatedProductsParams => {
   const queryParams: PaginatedProductsParams = {
-    limit: 12,
+    limit: PRODUCT_LIMIT,
   }
 
   if (collectionId) {
@@ -49,6 +48,36 @@ export default async function PaginatedProducts({
   if (sortBy === "created_at") {
     queryParams["order"] = "created_at"
   }
+
+  return queryParams
+}
+
+// Page 1 is server-rendered here exactly as before (initial-load
+// performance/SEO unaffected — the full first 12 products are still in the
+// initial HTML). InfiniteProductGrid (client) takes it from there, fetching
+// subsequent pages via the loadMoreProducts server action as the shopper
+// scrolls, instead of numbered Pagination.
+export default async function PaginatedProducts({
+  sortBy,
+  page,
+  collectionId,
+  categoryId,
+  productsIds,
+  countryCode,
+}: {
+  sortBy?: SortOptions
+  page: number
+  collectionId?: string
+  categoryId?: string
+  productsIds?: string[]
+  countryCode: string
+}) {
+  const queryParams = buildProductQueryParams({
+    sortBy,
+    collectionId,
+    categoryId,
+    productsIds,
+  })
 
   const region = await getRegion(countryCode)
 
@@ -73,31 +102,26 @@ export default async function PaginatedProducts({
     products.map((p) => p.id).filter(Boolean) as string[]
   )
 
+  const initialItems = products.map((p) => (
+    <li key={p.id}>
+      <ProductPreview
+        product={p}
+        region={region}
+        reviewSummary={p.id ? reviewSummaries[p.id] : undefined}
+      />
+    </li>
+  ))
+
   return (
-    <>
-      <ul
-        className="grid grid-cols-2 w-full small:grid-cols-3 medium:grid-cols-4 gap-x-6 gap-y-8"
-        data-testid="products-list"
-      >
-        {products.map((p) => {
-          return (
-            <li key={p.id}>
-              <ProductPreview
-                product={p}
-                region={region}
-                reviewSummary={p.id ? reviewSummaries[p.id] : undefined}
-              />
-            </li>
-          )
-        })}
-      </ul>
-      {totalPages > 1 && (
-        <Pagination
-          data-testid="product-pagination"
-          page={page}
-          totalPages={totalPages}
-        />
-      )}
-    </>
+    <InfiniteProductGrid
+      initialItems={initialItems}
+      initialPage={page}
+      initialTotalPages={totalPages}
+      sortBy={sortBy}
+      collectionId={collectionId}
+      categoryId={categoryId}
+      productsIds={productsIds}
+      countryCode={countryCode}
+    />
   )
 }
