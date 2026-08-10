@@ -75,6 +75,7 @@ worktree command in the branch check above is already the setup. For a fresh iss
 
 ```
 WORKTREE="../dev-loop-worktree-issue-<n>"
+readonly WORKTREE
 git worktree add "$WORKTREE" HEAD
 ```
 

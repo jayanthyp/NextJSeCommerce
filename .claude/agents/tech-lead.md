@@ -91,6 +91,7 @@ the entire audit or unblocking workflow from it:
 
 ```
 WORKTREE="../tech-lead-worktree-cycle-$(date -u +%Y%m%dT%H%M%S)"
+readonly WORKTREE
 git fetch origin
 git worktree add "$WORKTREE" HEAD
 cd "$WORKTREE"
