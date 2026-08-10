@@ -32,9 +32,9 @@ const GOOGLE_AUTH_ENABLED = Boolean(
 )
 
 // Razorpay is optional too (see issue #7) — until real credentials exist,
-// checkout falls back to Medusa's built-in "system" payment provider, which
-// is always registered regardless of this config (see
-// @medusajs/payment's providers loader).
+// checkout falls back to Medusa's built-in "system" payment provider (always
+// registered regardless of this config; see @medusajs/payment's providers
+// loader) plus the always-on Cash on Delivery provider (issue #64).
 const RAZORPAY_ENABLED = Boolean(
   process.env.RAZORPAY_KEY_ID &&
     process.env.RAZORPAY_KEY_SECRET &&
@@ -204,12 +204,17 @@ module.exports = defineConfig({
     },
 
     // --- Payment ------------------------------------------------------------
-    ...(RAZORPAY_ENABLED
-      ? [
-          {
-            resolve: "@medusajs/medusa/payment",
-            options: {
-              providers: [
+    // The payment module is always registered so the COD provider (issue
+    // #64) is always available — it needs no secrets. Razorpay (issue #7)
+    // is included only when its credentials are present. Medusa's built-in
+    // "system" (manual) provider is registered regardless by
+    // @medusajs/payment's providers loader.
+    {
+      resolve: "@medusajs/medusa/payment",
+      options: {
+        providers: [
+          ...(RAZORPAY_ENABLED
+            ? [
                 {
                   resolve: "./src/modules/razorpay",
                   id: "razorpay",
@@ -219,11 +224,12 @@ module.exports = defineConfig({
                     webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
                   },
                 },
-              ],
-            },
-          },
-        ]
-      : []),
+              ]
+            : []),
+          { resolve: "./src/modules/cod", id: "cod" },
+        ],
+      },
+    },
 
     // --- Site content -----------------------------------------------------
     { resolve: "./src/modules/homepage-carousel" },

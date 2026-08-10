@@ -24,6 +24,10 @@ export const DELIVERY_METHOD_NAME = "Standard Shipping"
 
 export const PAYMENT_METHOD_NAME = "Manual Payment"
 
+/** Cash on Delivery (issue #64) — enabled on the India + Australia launch
+ * regions, so it's selectable on the AU checkout the COD spec runs in. */
+export const COD_PAYMENT_METHOD_NAME = "Cash on Delivery"
+
 export function uniqueTestCustomer() {
   const stamp = Date.now()
   return {

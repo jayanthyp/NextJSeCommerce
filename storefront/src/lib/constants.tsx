@@ -1,5 +1,5 @@
 import React from "react"
-import { CreditCard } from "@medusajs/icons"
+import { Cash, CreditCard } from "@medusajs/icons"
 
 import Ideal from "@modules/common/icons/ideal"
 import Bancontact from "@modules/common/icons/bancontact"
@@ -51,6 +51,10 @@ export const paymentInfoMap: Record<
     title: "Manual Payment",
     icon: <CreditCard />,
   },
+  pp_cod_cod: {
+    title: "Cash on Delivery",
+    icon: <Cash />,
+  },
   pp_razorpay_razorpay: {
     title: "Razorpay (UPI, Cards, Netbanking, Wallets)",
     icon: <CreditCard />,
@@ -70,6 +74,9 @@ export const isPaypal = (providerId?: string) => {
 }
 export const isManual = (providerId?: string) => {
   return providerId?.startsWith("pp_system_default")
+}
+export const isCod = (providerId?: string) => {
+  return providerId === "pp_cod_cod"
 }
 export const isRazorpay = (providerId?: string) => {
   return providerId?.startsWith("pp_razorpay_")

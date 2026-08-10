@@ -54,6 +54,11 @@ type CurrencyRegion = {
   highAmount: number;
   /** Flat shipping price in this currency. */
   shippingAmount: number;
+  /** Payment providers to attach when the region is created. Defaults to
+   * Medusa's manual "system" provider only. COD (issue #64) is opted into
+   * for the two launch markets (India + Australia) here and can be toggled
+   * per-region via Admin afterwards. */
+  paymentProviders?: string[];
 };
 
 const NEW_CURRENCY_REGIONS: CurrencyRegion[] = [
@@ -61,11 +66,11 @@ const NEW_CURRENCY_REGIONS: CurrencyRegion[] = [
   { regionName: "United States", currencyCode: "usd", countries: ["us"], baseAmount: 10, highAmount: 15, shippingAmount: 10 },
   { regionName: "China", currencyCode: "cny", countries: ["cn"], baseAmount: 77, highAmount: 115, shippingAmount: 77 },
   { regionName: "Japan", currencyCode: "jpy", countries: ["jp"], baseAmount: 1600, highAmount: 2400, shippingAmount: 1600 },
-  { regionName: "India", currencyCode: "inr", countries: ["in"], baseAmount: 900, highAmount: 1350, shippingAmount: 900 },
+  { regionName: "India", currencyCode: "inr", countries: ["in"], baseAmount: 900, highAmount: 1350, shippingAmount: 900, paymentProviders: ["pp_system_default", "pp_cod_cod"] },
   { regionName: "Canada", currencyCode: "cad", countries: ["ca"], baseAmount: 14, highAmount: 21, shippingAmount: 14 },
   { regionName: "Brazil", currencyCode: "brl", countries: ["br"], baseAmount: 54, highAmount: 81, shippingAmount: 54 },
   { regionName: "South Korea", currencyCode: "krw", countries: ["kr"], baseAmount: 13500, highAmount: 20000, shippingAmount: 13500 },
-  { regionName: "Australia", currencyCode: "aud", countries: ["au"], baseAmount: 16, highAmount: 24, shippingAmount: 16 },
+  { regionName: "Australia", currencyCode: "aud", countries: ["au"], baseAmount: 16, highAmount: 24, shippingAmount: 16, paymentProviders: ["pp_system_default", "pp_cod_cod"] },
   { regionName: "Mexico", currencyCode: "mxn", countries: ["mx"], baseAmount: 180, highAmount: 270, shippingAmount: 180 },
   { regionName: "Indonesia", currencyCode: "idr", countries: ["id"], baseAmount: 170000, highAmount: 255000, shippingAmount: 170000 },
   { regionName: "Saudi Arabia", currencyCode: "sar", countries: ["sa"], baseAmount: 38, highAmount: 57, shippingAmount: 38 },
@@ -244,8 +249,36 @@ export default async function addGlobalRegions({ container }: ExecArgs) {
           name: r.regionName,
           currency_code: r.currencyCode,
           countries: r.countries,
-          payment_providers: ["pp_system_default"],
+          payment_providers: r.paymentProviders ?? ["pp_system_default"],
         })),
+      },
+    });
+  }
+
+  // --- 5b. Ensure the launch-market regions (India, Australia) offer both
+  //        the manual "system" provider AND COD (pp_cod_cod). Medusa does
+  //        NOT populate a region's `payment_providers` relation via
+  //        listRegions, so we deliberately set the FULL provider list here
+  //        rather than reading/append from the relation (which would drop
+  //        pp_system_default — its links are soft-deleted when the set is
+  //        written without it). Setting the exact launch set is idempotent:
+  //        on a fresh DB step 5 already creates these regions with this set,
+  //        and re-running just re-asserts it (a no-op when unchanged).
+
+  const COD_LAUNCH_REGIONS = ["India", "Australia"];
+  const currentRegions = await regionModuleService.listRegions({}, {});
+  const launchRegions = currentRegions.filter((r) =>
+    COD_LAUNCH_REGIONS.includes(r.name)
+  );
+
+  for (const region of launchRegions) {
+    logger.info(
+      `Ensuring pp_system_default + pp_cod_cod are set on the ${region.name} region...`
+    );
+    await updateRegionsWorkflow(container).run({
+      input: {
+        selector: { id: region.id },
+        update: { payment_providers: ["pp_system_default", "pp_cod_cod"] },
       },
     });
   }
