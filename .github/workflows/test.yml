@@ -134,6 +134,7 @@ jobs:
       - run: npm run test:unit
 
   storefront-e2e:
+    if: false  # Playwright e2e disabled per owner decision (2026-08-10)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
