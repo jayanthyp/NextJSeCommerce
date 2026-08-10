@@ -97,7 +97,7 @@ readonly REPO_ROOT
 git fetch origin
 git worktree add "$WORKTREE" HEAD
 cd "$WORKTREE"
-cleanup() { cd "$REPO_ROOT" && git worktree remove "$WORKTREE" --force; }
+cleanup() { cd "$REPO_ROOT"; git worktree remove "$WORKTREE" --force; }
 trap cleanup EXIT
 ```
 

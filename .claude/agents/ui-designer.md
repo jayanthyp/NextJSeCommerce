@@ -32,12 +32,12 @@ readonly REPO_ROOT
 git fetch origin
 git worktree add "$WORKTREE" HEAD
 cd "$WORKTREE"
-cleanup() { cd "$REPO_ROOT" && git worktree remove "$WORKTREE" --force; }
+cleanup() { cd "$REPO_ROOT"; git worktree remove "$WORKTREE" --force; }
 trap cleanup EXIT
 ```
 
 The cleanup trap is unconditional and must run after promotion, blocking, or any error. Never
-checkout a branch in the shared repository directory. The worktree is for inspection and issue
+check out a branch in the shared repository directory. The worktree is for inspection and issue
 metadata updates only; do not create commits from the UI designer worktree.
 
 ---

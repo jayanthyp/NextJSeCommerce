@@ -85,7 +85,7 @@ For both paths, then enter the worktree and install the unconditional cleanup tr
 
 ```
 cd "$WORKTREE"
-cleanup() { cd "$REPO_ROOT" && git worktree remove "$WORKTREE" --force; }
+cleanup() { cd "$REPO_ROOT"; git worktree remove "$WORKTREE" --force; }
 trap cleanup EXIT
 ```
 
@@ -164,7 +164,7 @@ gh pr comment <pr-number> --repo jayanthyp/NextJSeCommerce --body "Pushed a fix 
 **Otherwise (fresh work)**, open a new branch and PR as usual:
 
 ```
-git checkout -b feature/issue-<n>-<short-slug>
+git checkout -b feature/issue-<n>-<short-slug>  # run inside $WORKTREE
 git add <files>
 git commit -m "..."
 git push -u origin feature/issue-<n>-<short-slug>
