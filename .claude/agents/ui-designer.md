@@ -25,10 +25,10 @@ Before inspecting local files for an actionable issue, create a cycle-specific w
 entire issue-processing workflow from it:
 
 ```
-WORKTREE="../ui-designer-worktree-issue-<n>"
-readonly WORKTREE
 REPO_ROOT="$(pwd)"
 readonly REPO_ROOT
+WORKTREE="$REPO_ROOT/../ui-designer-worktree-issue-<n>"
+readonly WORKTREE
 git fetch origin
 git worktree add "$WORKTREE" HEAD
 cd "$WORKTREE"

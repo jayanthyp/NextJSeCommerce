@@ -90,10 +90,10 @@ Before reading local files for an actionable PR or issue, create a cycle-specifi
 the entire audit or unblocking workflow from it:
 
 ```
-WORKTREE="../tech-lead-worktree-cycle-$(date -u +%Y%m%dT%H%M%S)"
-readonly WORKTREE
 REPO_ROOT="$(pwd)"
 readonly REPO_ROOT
+WORKTREE="$REPO_ROOT/../tech-lead-worktree-cycle-$(date -u +%Y%m%dT%H%M%S)"
+readonly WORKTREE
 git fetch origin
 git worktree add "$WORKTREE" HEAD
 cd "$WORKTREE"
@@ -102,7 +102,7 @@ trap cleanup EXIT
 ```
 
 The cleanup trap is unconditional and must run after approval, escalation, unblocking, deployment
-failure, or any error. Never checkout a branch in the shared repository directory.
+failure, or any error. Never check out a branch in the shared repository directory.
 
 ---
 

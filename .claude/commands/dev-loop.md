@@ -74,10 +74,10 @@ work there. For a fresh issue, use the current branch as the source; for an exis
 worktree command in the branch check above is already the setup. For a fresh issue:
 
 ```
-WORKTREE="../dev-loop-worktree-issue-<n>"
-readonly WORKTREE
 REPO_ROOT="$(pwd)"
 readonly REPO_ROOT
+WORKTREE="$REPO_ROOT/../dev-loop-worktree-issue-<n>"
+readonly WORKTREE
 git worktree add "$WORKTREE" HEAD
 ```
 
