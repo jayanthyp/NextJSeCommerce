@@ -75,9 +75,9 @@ worktree command in the branch check above is already the setup. For a fresh iss
 
 ```
 REPO_ROOT="$(pwd)"
-readonly REPO_ROOT
+export REPO_ROOT
 WORKTREE="$REPO_ROOT/../dev-loop-worktree-issue-<n>"
-readonly WORKTREE
+export WORKTREE
 git worktree add "$WORKTREE" HEAD
 ```
 

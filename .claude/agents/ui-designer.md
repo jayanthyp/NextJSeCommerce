@@ -30,7 +30,7 @@ readonly REPO_ROOT
 WORKTREE="$REPO_ROOT/../ui-designer-worktree-issue-<n>"
 readonly WORKTREE
 git fetch origin
-git worktree add "$WORKTREE" HEAD
+git worktree add "$WORKTREE" origin/HEAD
 cd "$WORKTREE"
 cleanup() { cd "$REPO_ROOT"; git worktree remove "$WORKTREE" --force; }
 trap cleanup EXIT
