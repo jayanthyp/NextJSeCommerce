@@ -129,10 +129,10 @@ jobs:
   # possible in GitHub Actions, so this is how backend-tests/storefront-unit
   # block a production deploy. See test.yml for what actually runs.
   #
-  # storefront-e2e (Playwright) also runs as part of this call, but
-  # deliberately does NOT gate `deploy` below — see that job's condition.
-  # It still runs on every push/PR (test.yml's own triggers) so failures
-  # stay visible; deploy just doesn't wait on it.
+  # storefront-e2e (Playwright) is disabled in CI (see test.yml's `if: false`
+  # on that job, per owner decision 2026-08-10), so it neither runs as part of
+  # this call nor gates `deploy`. Playwright e2e now runs via the
+  # quality-analyst agent against each PR's branch in an isolated local stack.
   test:
     uses: ./.github/workflows/test.yml
 
@@ -140,10 +140,10 @@ jobs:
     needs: [build-backend, build-storefront, test]
     # Proceed as long as neither build actually FAILED — a job that was
     # correctly skipped (nothing relevant changed) shouldn't block deploying
-    # the other one that did. Of `test`'s three sub-jobs, only backend-tests
-    # and storefront-unit have to pass — storefront-e2e is checked via
-    # `always()` + explicit per-job outputs (not `needs.test.result`)
-    # specifically so a red e2e run alone doesn't block deploy.
+    # the other one that did. Of `test`'s sub-jobs, only backend-tests and
+    # storefront-unit have to pass — storefront-e2e is disabled (see test.yml),
+    # so the gate relies on `always()` + explicit per-job outputs (not
+    # `needs.test.result`) for backend-tests/storefront-unit only.
     if: |
       always() && !cancelled() &&
       (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
