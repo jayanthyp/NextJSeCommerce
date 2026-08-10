@@ -2,11 +2,12 @@ name: Test
 
 # Runs on every push/PR for visibility, AND as a reusable workflow
 # (workflow_call) so deploy-vps.yml can `needs:` it. Only backend-tests and
-# storefront-unit actually gate a deploy (via the outputs below) —
-# storefront-e2e still runs here on every push/PR so failures stay visible,
-# but deploy-vps.yml deliberately doesn't wait on it (see that file's
-# `deploy` job for why: it's the slowest job and its failures are usually
-# either flakiness or caught well before a merge reaches `main`).
+# storefront-unit actually gate a deploy (via the outputs below).
+#
+# storefront-e2e (Playwright) is DISABLED here per owner decision
+# (2026-08-10) — see the `if: false` on that job. Playwright e2e is no longer
+# run in GitHub Actions; the quality-analyst agent runs the Playwright suite
+# against each PR's branch in an isolated local docker-compose stack instead.
 on:
   push:
     branches: [main]
@@ -134,6 +135,7 @@ jobs:
       - run: npm run test:unit
 
   storefront-e2e:
+    if: false  # Playwright e2e disabled per owner decision (2026-08-10)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
