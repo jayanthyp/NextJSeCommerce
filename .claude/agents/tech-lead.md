@@ -90,7 +90,7 @@ Before reading local files for an actionable PR or issue, create a cycle-specifi
 the entire audit or unblocking workflow from it:
 
 ```
-WORKTREE="../tech-lead-worktree-cycle-<timestamp>"
+WORKTREE="../tech-lead-worktree-cycle-$(date -u +%Y%m%dT%H%M%S)"
 git fetch origin
 git worktree add "$WORKTREE" HEAD
 cd "$WORKTREE"
