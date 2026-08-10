@@ -92,10 +92,12 @@ the entire audit or unblocking workflow from it:
 ```
 WORKTREE="../tech-lead-worktree-cycle-$(date -u +%Y%m%dT%H%M%S)"
 readonly WORKTREE
+REPO_ROOT="$(pwd)"
+readonly REPO_ROOT
 git fetch origin
 git worktree add "$WORKTREE" HEAD
 cd "$WORKTREE"
-cleanup() { cd - >/dev/null; git worktree remove "$WORKTREE" --force; }
+cleanup() { cd "$REPO_ROOT" && git worktree remove "$WORKTREE" --force; }
 trap cleanup EXIT
 ```
 

@@ -76,6 +76,8 @@ worktree command in the branch check above is already the setup. For a fresh iss
 ```
 WORKTREE="../dev-loop-worktree-issue-<n>"
 readonly WORKTREE
+REPO_ROOT="$(pwd)"
+readonly REPO_ROOT
 git worktree add "$WORKTREE" HEAD
 ```
 
@@ -83,7 +85,7 @@ For both paths, then enter the worktree and install the unconditional cleanup tr
 
 ```
 cd "$WORKTREE"
-cleanup() { cd - >/dev/null; git worktree remove "$WORKTREE" --force; }
+cleanup() { cd "$REPO_ROOT" && git worktree remove "$WORKTREE" --force; }
 trap cleanup EXIT
 ```
 
