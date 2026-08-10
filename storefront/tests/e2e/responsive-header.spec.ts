@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { ProductPage } from "./pages/product-page"
-import { COUNTRY_CODE, PRODUCT_HANDLE } from "./fixtures/test-data"
+import { COUNTRY_CODE, COUNTRY_NAME, PRODUCT_HANDLE } from "./fixtures/test-data"
 
 /**
  * The header's `small` breakpoint is 1024px (see tailwind.config.js) --
@@ -33,9 +33,9 @@ test.describe("Responsive header", () => {
     // visibility of the text itself rather than the button's textContent).
     const regionButton = page.getByTestId("region-switcher-button")
     await expect(regionButton).toBeVisible()
-    await expect(regionButton.getByText("Germany", { exact: true })).not.toBeVisible()
+    await expect(regionButton.getByText(COUNTRY_NAME, { exact: true })).not.toBeVisible()
     // The name is still available non-visually.
-    await expect(regionButton).toHaveAttribute("aria-label", /Germany/)
+    await expect(regionButton).toHaveAttribute("aria-label", new RegExp(COUNTRY_NAME))
 
     await context.close()
   })
