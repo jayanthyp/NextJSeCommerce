@@ -60,13 +60,29 @@ git fetch origin
 gh pr list --repo jayanthyp/NextJSeCommerce --search "<n> in:body" --state open --json number,headRefName,url
 ```
 
-- **A matching open PR exists** → check out its branch (`git checkout <headRefName>`, or
-  `git checkout -b <headRefName> origin/<headRefName>` if not fetched locally yet) instead of creating
-  a new one. Implement the fix on top of it — read `tech-lead`'s or `quality-analyst`'s comment on the
+- **A matching open PR exists** → fetch its branch and use the cycle worktree for it (`git worktree
+  add ../dev-loop-worktree-issue-<n> origin/<headRefName>`; do not check it out in the shared
+  directory).
+  Implement the fix on top of it — read `tech-lead`'s or `quality-analyst`'s comment on the
   issue for what specifically needs fixing. Skip step 5's `git checkout -b`/`gh pr create` when you get
   there; just commit and push to this existing branch instead, then comment on the PR/issue summarizing
   the fix rather than opening a second competing PR.
 - **No matching open PR** → this is fresh work; proceed normally through step 5's new-branch flow.
+
+Once the branch source is known, create a cycle-specific worktree and perform all local file and git
+work there. For a fresh issue, use the current branch as the source; for an existing PR, the
+worktree command in the branch check above is already the setup:
+
+```
+WORKTREE="../dev-loop-worktree-issue-<n>"
+git worktree add "$WORKTREE" HEAD
+cd "$WORKTREE"
+cleanup() { cd - >/dev/null; git worktree remove "$WORKTREE" --force; }
+trap cleanup EXIT
+```
+
+The `trap` is unconditional: it runs when the cycle ships a PR, blocks the issue, or exits because
+of an error.
 
 ## 3. Implement
 

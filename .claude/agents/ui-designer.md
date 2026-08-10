@@ -21,6 +21,21 @@ You run in a continuous loop. **Never stop or exit the polling loop** when encou
 
 2. **Loop Continuation:** If no actionable issues are found, sleep for 180 seconds (`sleep 180`) and rerun the check indefinitely.
 
+Before inspecting local files for an actionable issue, create a cycle-specific worktree and run the
+entire issue-processing workflow from it:
+
+```
+WORKTREE="../ui-designer-worktree-issue-<n>"
+git fetch origin
+git worktree add "$WORKTREE" HEAD
+cd "$WORKTREE"
+cleanup() { cd - >/dev/null; git worktree remove "$WORKTREE" --force; }
+trap cleanup EXIT
+```
+
+The cleanup trap is unconditional and must run after promotion, blocking, or any error. Never
+checkout a branch in the shared repository directory.
+
 ---
 
 ### Execution Workflows

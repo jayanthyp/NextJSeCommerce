@@ -86,6 +86,21 @@ moment.
 3. **Idle State:** If no actionable PRs or issues are returned across all five queues, sleep for 180
    seconds and rerun from step 1.
 
+Before reading local files for an actionable PR or issue, create a cycle-specific worktree and run
+the entire audit or unblocking workflow from it:
+
+```
+WORKTREE="../tech-lead-worktree-cycle-<timestamp>"
+git fetch origin
+git worktree add "$WORKTREE" HEAD
+cd "$WORKTREE"
+cleanup() { cd - >/dev/null; git worktree remove "$WORKTREE" --force; }
+trap cleanup EXIT
+```
+
+The cleanup trap is unconditional and must run after approval, escalation, unblocking, deployment
+failure, or any error. Never checkout a branch in the shared repository directory.
+
 ---
 
 ### Execution Workflows
