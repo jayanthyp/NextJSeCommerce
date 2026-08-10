@@ -49,24 +49,39 @@ Claim it:
 gh issue edit <n> --repo jayanthyp/NextJSeCommerce --add-assignee @me --remove-label "status:ready-for-dev" --add-label "status:in-progress"
 ```
 
-## 2. Check for an existing branch/PR before implementing
+## 2. Check for an existing branch/PR, then set up an isolated worktree
 
-This issue may be arriving fresh, or it may be a re-entry — `tech-lead` hands a resolved
-`status:blocked` issue back here as `status:ready-for-dev` (Workflow 2a), which includes issues
-`quality-analyst` originally failed on an already-open PR. Never assume it's new:
+Never do this work in the shared repo directory. `dev-loop`, `ui-designer`, `quality-analyst`, and
+`tech-lead` can all be running as separate `/loop` sessions at the same moment, and a bare `git
+checkout` here races with whatever any of them currently has checked out — silently swapping the
+branch out from under a session that expects it to still be there. Always work in a dedicated
+worktree instead, mirroring `quality-analyst`'s own isolation pattern:
 
 ```
 git fetch origin
 gh pr list --repo jayanthyp/NextJSeCommerce --search "<n> in:body" --state open --json number,headRefName,url
 ```
 
-- **A matching open PR exists** → check out its branch (`git checkout <headRefName>`, or
-  `git checkout -b <headRefName> origin/<headRefName>` if not fetched locally yet) instead of creating
-  a new one. Implement the fix on top of it — read `tech-lead`'s or `quality-analyst`'s comment on the
-  issue for what specifically needs fixing. Skip step 5's `git checkout -b`/`gh pr create` when you get
-  there; just commit and push to this existing branch instead, then comment on the PR/issue summarizing
-  the fix rather than opening a second competing PR.
-- **No matching open PR** → this is fresh work; proceed normally through step 5's new-branch flow.
+- **A matching open PR exists** (re-entry — e.g. `tech-lead` handed back a resolved `status:blocked`
+  issue that already has a PR):
+  ```
+  git worktree add ../dev-loop-worktree-issue-<n> origin/<headRefName>
+  cd ../dev-loop-worktree-issue-<n>
+  ```
+  Implement the fix on top of it — read `tech-lead`'s or `quality-analyst`'s comment on the issue for
+  what specifically needs fixing. Skip step 5's new-branch flow when you get there; commit and push to
+  this existing branch instead, then comment on the PR/issue summarizing the fix rather than opening a
+  second competing PR.
+- **No matching open PR** (fresh work):
+  ```
+  git worktree add -b feature/issue-<n>-<short-slug> ../dev-loop-worktree-issue-<n> origin/main
+  cd ../dev-loop-worktree-issue-<n>
+  ```
+
+Steps 3–5 below, and any blocking in step 3, all happen from inside this worktree — `cd` back into it
+at the start of each if a tool call resets your shell's working directory. Tear it down at the very
+end of step 5, whether you shipped a PR, pushed a fix to an existing one, or blocked the issue instead
+(see step 5's teardown note) — never leave a stray worktree for the next cycle to trip over.
 
 ## 3. Implement
 
@@ -137,10 +152,10 @@ git push origin <headRefName>
 gh pr comment <pr-number> --repo jayanthyp/NextJSeCommerce --body "Pushed a fix for <what was reported>. Ran: <test summary>."
 ```
 
-**Otherwise (fresh work)**, open a new branch and PR as usual:
+**Otherwise (fresh work)**, the worktree already created and checked out `feature/issue-<n>-<short-slug>`
+in step 2 — just commit and open the PR from inside it:
 
 ```
-git checkout -b feature/issue-<n>-<short-slug>
 git add <files>
 git commit -m "..."
 git push -u origin feature/issue-<n>-<short-slug>
@@ -172,6 +187,18 @@ the E2E suite (desktop + mobile) against this PR's branch before it ever reaches
 gh issue edit <n> --repo jayanthyp/NextJSeCommerce --remove-label "status:in-progress" --add-label "status:ready-for-qa"
 gh issue comment <n> --repo jayanthyp/NextJSeCommerce --body "Opened <PR URL>. Ran: <test summary>. e2e not run locally — awaiting quality-analyst verification."
 ```
+
+**Tear down the worktree now, unconditionally** — this is the last thing every cycle does, whether it
+shipped a fresh PR, pushed to an existing one, or blocked the issue back in step 3:
+
+```
+cd ..
+git worktree remove dev-loop-worktree-issue-<n> --force
+```
+
+Run this even on a blocked-issue path (step 3) before moving on to try the next ready issue — a
+leftover worktree from a blocked cycle is exactly the kind of stray state the next cycle would trip
+over.
 
 `status:ready-for-qa` (not `status:in-review`) is the correct hand-off label — the `quality-analyst`
 agent polls for it, runs the Playwright e2e suite against the PR branch, and only then moves the issue

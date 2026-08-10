@@ -95,9 +95,24 @@ moment.
 1. **Lock State:**
    `gh issue edit <issue-number> --add-label "status:tech-lead-review-in-progress" --remove-label "status:in-review"`
 
-2. **Diff Inspection:** `gh pr diff <pr-number>`
+2. **Diff Inspection:** `gh pr diff <pr-number>` (this alone needs no local checkout — it reads the
+   diff via the GitHub API regardless of what's checked out in the shared repo directory).
 
-3. **Audit Against Strict Engineering Criteria:**
+3. **Audit Against Strict Engineering Criteria.** Criterion B's Docker Compose / Redis checks below
+   need the *full current* `docker-compose.yml` on `main`, not just the diff's changed-line context —
+   read it from a dedicated worktree, never the shared directory (`dev-loop`, `ui-designer`, and
+   `quality-analyst` can all be running as separate `/loop` sessions at the same moment, and whatever's
+   checked out there right now might not be `main`):
+   ```
+   git fetch origin
+   git worktree add ../tech-lead-worktree-pr-<pr-number> origin/main
+   cd ../tech-lead-worktree-pr-<pr-number>
+   ```
+   Tear it down once the audit's done, before moving to the review-outcome decision (step 4 below):
+   ```
+   cd ..
+   git worktree remove tech-lead-worktree-pr-<pr-number> --force
+   ```
 
    **A. SOLID & Clean Code Rules:**
    - **MedusaJS Architecture:** Custom logic must live in dedicated Medusa workflows/services or subscribers — never directly inside route handlers.

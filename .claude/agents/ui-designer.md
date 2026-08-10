@@ -32,8 +32,22 @@ When an issue with `status:ready-for-ui-work` is detected:
 1. **Lock the Issue:** Immediately apply the working label so no other process picks it up:
    `gh issue edit <issue-number> --add-label "status:ui-requirement-refinement-in-progress"`
 
-2. **Inspect Existing UI & Theme Context:**
+2. **Inspect Existing UI & Theme Context, from a dedicated worktree:**
+   - Never search the shared repo directory directly — `dev-loop`, `quality-analyst`, and `tech-lead`
+     can all be running as separate `/loop` sessions at the same moment, and whatever's checked out
+     there at any given instant might be someone else's in-progress feature branch, not `main`. Stand
+     up your own read-only snapshot first:
+     ```
+     git fetch origin
+     git worktree add ../ui-designer-worktree-issue-<issue-number> origin/main
+     cd ../ui-designer-worktree-issue-<issue-number>
+     ```
    - Search the codebase (e.g., `DESIGN.md`, Tailwind config, global CSS, or existing component folders) to identify our exact design tokens, typography, grid layouts, color palettes, and component libraries (e.g., Shadcn UI).
+   - Tear the worktree down once you're done reading, before moving on to step 3:
+     ```
+     cd ..
+     git worktree remove ui-designer-worktree-issue-<issue-number> --force
+     ```
 
 3. **Refine Issue Requirements:**
    - Read the existing issue description and rewrite/expand it to include explicit, actionable UI technical requirements covering:
@@ -105,7 +119,8 @@ labeled `status:blocked-ui-work-need-clarity` forever with nothing ever consumin
 
    Fold the requester's chosen direction into the UI specification exactly as Workflow A step 3 would
    have, had the ambiguity never come up — same Desktop/Mobile/Design-System/Breakpoint/Interactive-state
-   coverage.
+   coverage. If you need to re-inspect the codebase to do this, use the same dedicated-worktree pattern
+   as Workflow A step 2, not the shared repo directory.
 
 4. **Promote the issue**, same as Workflow A step 4:
    `gh issue edit <issue-number> --body "<Refined_Body>" --add-label "status:ready-for-dev" --remove-label "status:blocked-ui-work-need-clarity,status:ui-requirement-refinement-in-progress"`
