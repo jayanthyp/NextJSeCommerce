@@ -7,6 +7,7 @@ type ShippingDetails = {
   postalCode: string
   city: string
   countryCode: string
+  province: string
   email: string
 }
 
@@ -33,6 +34,15 @@ export class CheckoutPage {
     await this.page
       .getByTestId("shipping-country-select")
       .selectOption(details.countryCode)
+    // StateSelect filters its options to the currently selected country, so
+    // this has to run after the country select above, not before it — and
+    // some regions (e.g. "au") reject an address update server-side without
+    // a province even though the client-side isAddressComplete check doesn't
+    // require one, which previously left the form stuck on step=address
+    // with no visible error.
+    await this.page
+      .getByTestId("shipping-province-input")
+      .selectOption(details.province)
     await this.page.getByTestId("shipping-email-input").fill(details.email)
   }
 

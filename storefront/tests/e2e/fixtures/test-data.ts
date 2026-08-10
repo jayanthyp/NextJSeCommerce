@@ -18,6 +18,10 @@
  */
 export const COUNTRY_CODE = "au"
 
+/** Display name matching COUNTRY_CODE, for specs asserting on the
+ * region-switcher's visible/aria-label text rather than the raw code. */
+export const COUNTRY_NAME = "Australia"
+
 export const PRODUCT_HANDLE = "t-shirt"
 
 export const DELIVERY_METHOD_NAME = "Standard Shipping"
@@ -33,6 +37,7 @@ export function uniqueTestCustomer() {
     postalCode: "2000",
     city: "Sydney",
     countryCode: COUNTRY_CODE,
+    province: "New South Wales",
     // Unique per run so repeated test runs don't collide on the same
     // customer/order history in Admin.
     email: `e2e-${stamp}@example.com`,
