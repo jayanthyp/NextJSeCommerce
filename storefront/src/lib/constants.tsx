@@ -22,6 +22,37 @@ export const SITE_NAME = "Structura Crafts"
  */
 export const SELECTABLE_COUNTRY_CODES = ["in", "au"]
 
+/**
+ * Intent-based nav clusters for gift shoppers (see issue #65). Each entry's
+ * `href` points at a collection listing that must exist in the Medusa
+ * backend; when it doesn't, the collection page's own empty state is an
+ * acceptable fallback -- the nav itself does no existence-checking. A
+ * plain constant today, swappable for an admin-driven fetch later without
+ * touching the components that consume it.
+ */
+export const GIFT_NAV: { label: string; items: { label: string; href: string }[] }[] = [
+  {
+    label: "Shop by Occasion",
+    items: [
+      { label: "Birthday", href: "/collections/birthday" },
+      { label: "Anniversary", href: "/collections/anniversary" },
+      { label: "Teacher's Day", href: "/collections/teachers-day" },
+      { label: "Rakhi", href: "/collections/rakhi" },
+      { label: "All Occasions", href: "/collections/occasions" },
+    ],
+  },
+  {
+    label: "Shop by Recipient",
+    items: [
+      { label: "For Him", href: "/collections/for-him" },
+      { label: "For Her", href: "/collections/for-her" },
+      { label: "For Mom", href: "/collections/for-mom" },
+      { label: "For Dad", href: "/collections/for-dad" },
+      { label: "All Recipients", href: "/collections/recipients" },
+    ],
+  },
+]
+
 /* Map of payment provider_id to their title and icon. Add in any payment providers you want to use. */
 export const paymentInfoMap: Record<
   string,
