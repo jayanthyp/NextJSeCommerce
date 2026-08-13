@@ -270,7 +270,6 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
   await ghIssueEdit(state.issueNumber, {
     addLabel: "status:in-progress",
     removeLabel: "status:ready-for-dev",
-    addAssignee: "@me",
   });
 
   // Re-entry check (dev-loop.md step 2): an existing open PR means this is a
@@ -651,7 +650,6 @@ async function unblockGenericWorkflow(state: AgenticSdlcStateType): Promise<Part
     await ghIssueEdit(state.issueNumber, {
       addLabel: "status:ready-for-dev",
       removeLabel: "status:blocked",
-      removeAssignee: "@me",
     });
     return { currentLabel: "status:ready-for-dev" };
   }
@@ -684,7 +682,6 @@ async function ownerReplyWorkflow(state: AgenticSdlcStateType): Promise<Partial<
     await ghIssueEdit(state.issueNumber, {
       addLabel: "status:ready-for-dev",
       removeLabel: "status:blocked-architecture-review",
-      removeAssignee: "@me",
     });
     return { currentLabel: "status:ready-for-dev" };
   }
