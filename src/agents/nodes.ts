@@ -10,6 +10,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { interrupt } from "@langchain/langgraph";
 import { ChatAnthropic } from "@langchain/anthropic";
+import { tool as makeTool } from "@langchain/core/tools";
 import { z } from "zod";
 import type { AgenticSdlcStateType, CodeChange } from "./state.js";
 import {
@@ -45,8 +46,70 @@ import {
 
 const MAX_DEV_LOOP_ATTEMPTS = 3;
 
+/**
+ * Single place every node instantiates its LLM from. Provider is chosen by
+ * env vars, so switching between Claude and DeepSeek (the repo's fallback
+ * provider when Anthropic credit is exhausted) is a pure environment flip —
+ * no code change, mirroring the `~/.claude/settings.json` convention:
+ *
+ *   Claude  (default):  ANTHROPIC_API_KEY = real Anthropic Console key
+ *                       (leave ANTHROPIC_BASE_URL unset)
+ *   DeepSeek:            ANTHROPIC_API_KEY = DeepSeek key
+ *                       ANTHROPIC_BASE_URL = https://api.deepseek.com/anthropic
+ *                       ANTHROPIC_MODEL    = deepseek-v4-pro[1m]
+ *
+ * DeepSeek exposes an Anthropic-compatible Messages endpoint, so
+ * `@langchain/anthropic` talks to it unchanged — only the base URL, model
+ * name, and key change, all three together (an Anthropic key sent to the
+ * DeepSeek endpoint, or vice-versa, fails auth).
+ */
 function getLlm(temperature = 0) {
-  return new ChatAnthropic({ model: "claude-sonnet-4-5", temperature });
+  const baseURL = process.env.ANTHROPIC_BASE_URL;
+  return new ChatAnthropic({
+    model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5",
+    temperature,
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+    ...(baseURL ? { clientOptions: { baseURL } } : {}),
+  });
+}
+
+/**
+ * Structured extraction that works against both Claude and DeepSeek.
+ *
+ * `ChatAnthropic.withStructuredOutput()` is unusable on DeepSeek's
+ * Anthropic-compatible endpoint: it forces
+ * `tool_choice: { type: "tool", name: "extract" }`, and DeepSeek's proxy
+ * routes any *forced-tool* request to its thinking/reasoner model, which
+ * rejects it (`"Thinking mode does not support this tool_choice"`). Binding
+ * the tool with `tool_choice: "any"` instead sidesteps that path and is
+ * accepted by both providers; we parse the emitted tool call's args ourselves.
+ */
+async function extractStructured<S extends z.ZodTypeAny>(
+  schema: S,
+  messages: unknown[],
+  temperature = 0
+): Promise<z.infer<S>> {
+  const llm = getLlm(temperature).bindTools(
+    [
+      makeTool(
+        async (_input: z.infer<S>) => "",
+        {
+          name: "extract",
+          description: schema.description ?? "Return the requested structured data.",
+          schema,
+        } as never
+      ),
+    ],
+    { tool_choice: "any" }
+  );
+  const res = await llm.invoke(messages as never);
+  const toolCall = res.tool_calls?.[0];
+  if (!toolCall) {
+    throw new Error(
+      `LLM emitted no tool call for structured extraction (content: ${JSON.stringify(res.content)?.slice(0, 300)})`
+    );
+  }
+  return schema.parse(toolCall.args);
 }
 
 /** Whether the most recent comment is a genuine new reply from the repo owner, not the agent's own prior comment. Mirrors tech-lead.md's / ui-designer.md's reply-detection pattern. */
@@ -77,8 +140,7 @@ const FeatureSpecSchema = z.object({
 });
 
 export async function businessAnalystNode(input: { rawFeatureNotes: string }): Promise<{ issueNumber: number }> {
-  const llm = getLlm().withStructuredOutput(FeatureSpecSchema);
-  const spec = await llm.invoke([
+  const spec = await extractStructured(FeatureSpecSchema, [
     {
       role: "system",
       content:
@@ -136,8 +198,7 @@ export async function uiDesignerNode(state: AgenticSdlcStateType): Promise<Parti
   }
 
   const designContext = readDesignContext();
-  const llm = getLlm().withStructuredOutput(UiSpecSchema);
-  const result = await llm.invoke([
+  const result = await extractStructured(UiSpecSchema, [
     {
       role: "system",
       content:
@@ -229,8 +290,6 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
   }
 
   const commentsText = issue.comments.map((c) => `${c.author.login}: ${c.body}`).join("\n\n");
-  const llm = getLlm().withStructuredOutput(CodeChangesSchema);
-
   let attempts = 0;
   let lastError = "";
   let changes: CodeChange[] = [];
@@ -238,7 +297,7 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
 
   while (attempts < MAX_DEV_LOOP_ATTEMPTS) {
     attempts += 1;
-    const result = await llm.invoke([
+    const result = await extractStructured(CodeChangesSchema, [
       {
         role: "system",
         content:
@@ -415,8 +474,7 @@ const AuditVerdictSchema = z.object({
 });
 
 async function auditPr(diff: string): Promise<z.infer<typeof AuditVerdictSchema>> {
-  const llm = getLlm().withStructuredOutput(AuditVerdictSchema);
-  return llm.invoke([
+  return extractStructured(AuditVerdictSchema, [
     {
       role: "system",
       content: [
@@ -575,11 +633,10 @@ async function unblockGenericWorkflow(state: AgenticSdlcStateType): Promise<Part
   const prs = (await ghPrList(`${state.issueNumber} in:body`, "number,headRefName,url")) as { number: number; url: string }[];
   const pr = prs[0];
 
-  const llm = getLlm().withStructuredOutput(
-    z.object({ canResolve: z.boolean(), direction: z.string() })
-  );
   const lastComment = issue.comments[issue.comments.length - 1]?.body ?? "";
-  const decision = await llm.invoke([
+  const decision = await extractStructured(
+    z.object({ canResolve: z.boolean(), direction: z.string() }),
+    [
     {
       role: "system",
       content:

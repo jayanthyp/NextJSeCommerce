@@ -41,9 +41,17 @@ jobs:
 
       - name: Execute LangGraph Orchestrator
         env:
-          # Model Provider Keys
+          # Model Provider — Claude by default, DeepSeek when Anthropic credit
+          # is exhausted. To use DeepSeek, set these three secrets together:
+          #   ANTHROPIC_API_KEY   = DeepSeek API key
+          #   ANTHROPIC_BASE_URL  = https://api.deepseek.com/anthropic
+          #   ANTHROPIC_MODEL     = deepseek-v4-pro[1m]
+          # (see src/agents/nodes.ts getLlm()). Leave ANTHROPIC_BASE_URL empty
+          # to fall back to the Anthropic API with an Anthropic key.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+
           # GitHub API Access
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
