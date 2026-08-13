@@ -1,0 +1,404 @@
+/**
+ * Tool-first execution layer: typed wrappers around `gh`, `git`, `npm`,
+ * `docker compose`, and the existing tech-lead wrapper scripts, all via
+ * child_process with an argv array (never shell string interpolation, so
+ * issue/PR content can never inject extra flags — the same discipline
+ * scripts/tech-lead-*.sh already follow).
+ *
+ * Every node in nodes.ts goes through these instead of calling execFile
+ * directly, and instead of asking an LLM to write bash — per the Tool-First
+ * principle, the LLM is only ever invoked for reasoning (see nodes.ts),
+ * never for shelling out.
+ */
+import { execFile as execFileCb, spawn } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFile = promisify(execFileCb);
+
+export interface RunResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+const REPO = "jayanthyp/NextJSeCommerce";
+
+/**
+ * Runs a command via argv (no shell), returning stdout/stderr/exitCode
+ * regardless of exit status — callers decide what a non-zero exit means
+ * (e.g. `gh pr checks` exits non-zero when a check merely hasn't finished
+ * yet, which is not an error condition for quality-analyst/tech-lead).
+ */
+async function run(
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string } = {}
+): Promise<RunResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, {
+      cwd: opts.cwd,
+      env: opts.env ?? process.env,
+      shell: false,
+    });
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => (stdout += d.toString()));
+    child.stderr.on("data", (d) => (stderr += d.toString()));
+
+    child.on("error", reject); // spawn itself failed (e.g. binary not found)
+    child.on("close", (exitCode) => resolve({ stdout, stderr, exitCode: exitCode ?? -1 }));
+
+    if (opts.input !== undefined) {
+      child.stdin.write(opts.input);
+    }
+    child.stdin.end();
+  });
+}
+
+/** Throws with stderr context if the command failed — for calls where a non-zero exit is always a real error. */
+function assertOk(result: RunResult, context: string): RunResult {
+  if (result.exitCode !== 0) {
+    throw new Error(`${context} failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// gh: issues
+// ---------------------------------------------------------------------------
+
+export interface GhIssue {
+  number: number;
+  title: string;
+  body: string;
+  labels: { name: string }[];
+  comments: { author: { login: string }; body: string; createdAt: string }[];
+  assignees: { login: string }[];
+}
+
+export async function ghIssueView(issueNumber: number): Promise<GhIssue> {
+  const r = await run("gh", [
+    "issue",
+    "view",
+    String(issueNumber),
+    "--repo",
+    REPO,
+    "--json",
+    "number,title,body,labels,comments,assignees",
+  ]);
+  assertOk(r, `gh issue view #${issueNumber}`);
+  return JSON.parse(r.stdout) as GhIssue;
+}
+
+export async function ghIssueList(search: string, fields: string): Promise<unknown[]> {
+  const r = await run("gh", ["issue", "list", "--repo", REPO, "--search", search, "--json", fields]);
+  assertOk(r, `gh issue list --search "${search}"`);
+  return JSON.parse(r.stdout) as unknown[];
+}
+
+export async function ghIssueEdit(
+  issueNumber: number,
+  opts: { addLabel?: string; removeLabel?: string; addAssignee?: string; removeAssignee?: string }
+): Promise<void> {
+  const args = ["issue", "edit", String(issueNumber), "--repo", REPO];
+  if (opts.addLabel) args.push("--add-label", opts.addLabel);
+  if (opts.removeLabel) args.push("--remove-label", opts.removeLabel);
+  if (opts.addAssignee) args.push("--add-assignee", opts.addAssignee);
+  if (opts.removeAssignee) args.push("--remove-assignee", opts.removeAssignee);
+  assertOk(await run("gh", args), `gh issue edit #${issueNumber}`);
+}
+
+export async function ghIssueComment(issueNumber: number, body: string): Promise<void> {
+  assertOk(
+    await run("gh", ["issue", "comment", String(issueNumber), "--repo", REPO, "--body", body]),
+    `gh issue comment #${issueNumber}`
+  );
+}
+
+export async function ghIssueCreate(title: string, body: string, label: string): Promise<number> {
+  const r = await run("gh", ["issue", "create", "--repo", REPO, "--title", title, "--body", body, "--label", label]);
+  assertOk(r, "gh issue create");
+  // gh prints the new issue URL; the trailing path segment is the number.
+  const match = r.stdout.trim().match(/\/(\d+)\s*$/);
+  if (!match) throw new Error(`Could not parse issue number from: ${r.stdout}`);
+  return Number(match[1]);
+}
+
+// ---------------------------------------------------------------------------
+// gh: pull requests / checks / runs
+// ---------------------------------------------------------------------------
+
+export async function ghPrList(search: string, fields: string, state: "open" | "all" = "open"): Promise<unknown[]> {
+  const r = await run("gh", ["pr", "list", "--repo", REPO, "--search", search, "--state", state, "--json", fields]);
+  assertOk(r, `gh pr list --search "${search}"`);
+  return JSON.parse(r.stdout) as unknown[];
+}
+
+export async function ghPrDiff(prNumber: number): Promise<string> {
+  const r = await run("gh", ["pr", "diff", String(prNumber), "--repo", REPO]);
+  assertOk(r, `gh pr diff #${prNumber}`);
+  return r.stdout;
+}
+
+export interface GhCheck {
+  name: string;
+  bucket: "pass" | "fail" | "pending" | "skipping" | "cancel";
+}
+
+/** Never throws on a non-zero exit — `gh pr checks` exits non-zero whenever any check isn't green, which callers must branch on, not treat as a tool failure. */
+export async function ghPrChecks(prNumber: number): Promise<GhCheck[]> {
+  const r = await run("gh", ["pr", "checks", String(prNumber), "--repo", REPO, "--json", "name,bucket"]);
+  if (!r.stdout.trim()) return [];
+  return JSON.parse(r.stdout) as GhCheck[];
+}
+
+export async function ghPrCreate(title: string, body: string, headBranch: string): Promise<number> {
+  const r = await run("gh", [
+    "pr",
+    "create",
+    "--repo",
+    REPO,
+    "--title",
+    title,
+    "--body",
+    body,
+    "--head",
+    headBranch,
+  ]);
+  assertOk(r, "gh pr create");
+  const match = r.stdout.trim().match(/\/(\d+)\s*$/);
+  if (!match) throw new Error(`Could not parse PR number from: ${r.stdout}`);
+  return Number(match[1]);
+}
+
+export async function ghPrComment(prNumber: number, body: string): Promise<void> {
+  assertOk(await run("gh", ["pr", "comment", String(prNumber), "--repo", REPO, "--body", body]), `gh pr comment #${prNumber}`);
+}
+
+/** Unapproved (non-tech-lead) review comment — never `--approve` from here; that's exclusively runTechLeadApprove below. */
+export async function ghPrReviewComment(prNumber: number, body: string): Promise<void> {
+  assertOk(
+    await run("gh", ["pr", "review", String(prNumber), "--repo", REPO, "--comment", "--body", body]),
+    `gh pr review --comment #${prNumber}`
+  );
+}
+
+export async function ghRunViewLogFailed(runId: string): Promise<string> {
+  const r = await run("gh", ["run", "view", runId, "--repo", REPO, "--log-failed"]);
+  return r.stdout; // don't assertOk: a failed run's log-failed call legitimately has diagnostic content on stderr too
+}
+
+export async function ghRunRerunFailed(runId: string): Promise<void> {
+  assertOk(await run("gh", ["run", "rerun", runId, "--repo", REPO, "--failed"]), `gh run rerun ${runId}`);
+}
+
+export async function ghRunWatch(runId: string): Promise<boolean> {
+  const r = await run("gh", ["run", "watch", runId, "--repo", REPO, "--exit-status"]);
+  return r.exitCode === 0;
+}
+
+export async function ghWorkflowRun(workflow: string, ref: string): Promise<void> {
+  assertOk(await run("gh", ["workflow", "run", workflow, "--repo", REPO, "--ref", ref]), `gh workflow run ${workflow}`);
+}
+
+export async function ghRunListLatestId(workflow: string, branch: string): Promise<string> {
+  const r = await run("gh", [
+    "run",
+    "list",
+    "--repo",
+    REPO,
+    `--workflow=${workflow}`,
+    "--branch",
+    branch,
+    "-L",
+    "1",
+    "--json",
+    "databaseId",
+  ]);
+  assertOk(r, `gh run list --workflow=${workflow}`);
+  const rows = JSON.parse(r.stdout) as { databaseId: number }[];
+  const first = rows[0];
+  if (!first) throw new Error(`No runs found for workflow ${workflow} on branch ${branch}`);
+  return String(first.databaseId);
+}
+
+// ---------------------------------------------------------------------------
+// git (never --force; the wrapper doesn't even accept the option)
+// ---------------------------------------------------------------------------
+
+export async function gitCheckout(branch: string, opts: { create?: boolean; startPoint?: string } = {}): Promise<void> {
+  const args = ["checkout"];
+  if (opts.create) args.push("-b");
+  args.push(branch);
+  if (opts.startPoint) args.push(opts.startPoint);
+  assertOk(await run("git", args), `git checkout ${branch}`);
+}
+
+export async function gitAdd(paths: string[]): Promise<void> {
+  assertOk(await run("git", ["add", ...paths]), "git add");
+}
+
+export async function gitCommit(message: string): Promise<void> {
+  assertOk(await run("git", ["commit", "-m", message]), "git commit");
+}
+
+export async function gitPush(branch: string, opts: { setUpstream?: boolean } = {}): Promise<void> {
+  const args = ["push"];
+  if (opts.setUpstream) args.push("-u");
+  args.push("origin", branch);
+  assertOk(await run("git", args), `git push origin ${branch}`);
+}
+
+// ---------------------------------------------------------------------------
+// tech-lead wrapper scripts (reused as-is, not reimplemented — see CLAUDE.md
+// and the plan's decision #4)
+// ---------------------------------------------------------------------------
+
+function requireTechLeadToken(): string {
+  const token = process.env.TECH_LEAD_GH_TOKEN;
+  if (!token) {
+    throw new Error(
+      "TECH_LEAD_GH_TOKEN is not set — see CLAUDE.md's tech-lead bot identity setup / .env.example"
+    );
+  }
+  return token;
+}
+
+export async function runTechLeadApprove(prNumber: number, reviewBody: string): Promise<void> {
+  requireTechLeadToken();
+  assertOk(
+    await run("bash", ["scripts/tech-lead-approve.sh", String(prNumber)], { input: reviewBody }),
+    `scripts/tech-lead-approve.sh ${prNumber}`
+  );
+}
+
+export async function runTechLeadMerge(prNumber: number): Promise<void> {
+  requireTechLeadToken();
+  assertOk(await run("bash", ["scripts/tech-lead-merge.sh", String(prNumber)]), `scripts/tech-lead-merge.sh ${prNumber}`);
+}
+
+export async function runTechLeadRollback(mergeSha: string): Promise<void> {
+  requireTechLeadToken();
+  assertOk(
+    await run("bash", ["scripts/tech-lead-rollback-revert.sh", mergeSha]),
+    `scripts/tech-lead-rollback-revert.sh ${mergeSha}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// npm / build / test (medusa, storefront)
+// ---------------------------------------------------------------------------
+
+export async function runNpmScript(cwd: "medusa" | "storefront", script: string): Promise<RunResult> {
+  // Not assertOk'd — devLoopNode needs the failure output to feed back to the LLM,
+  // not just an exception.
+  return run("npm", ["run", script], { cwd });
+}
+
+// ---------------------------------------------------------------------------
+// Playwright (quality-analyst's zero-LLM native execution)
+// ---------------------------------------------------------------------------
+
+export async function runPlaywright(baseUrl: string, projects: string[]): Promise<RunResult> {
+  const args = ["playwright", "test", ...projects.flatMap((p) => ["--project", p])];
+  return run("npx", args, {
+    cwd: "storefront",
+    env: { ...process.env, PLAYWRIGHT_BASE_URL: baseUrl },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// docker compose (quality-analyst's isolated stack — default ports; the
+// worktree + port-offset scheme in quality-analyst.md exists to avoid
+// colliding with a human's locally-running stack, which doesn't apply on a
+// fresh single-purpose GitHub-hosted runner)
+// ---------------------------------------------------------------------------
+
+const COMPOSE_ARGS = ["-f", "docker-compose.yml", "-f", "docker-compose.local.yml"];
+
+export async function dockerComposeUp(): Promise<void> {
+  assertOk(
+    await run("docker", ["compose", ...COMPOSE_ARGS, "up", "-d", "--build"]),
+    "docker compose up"
+  );
+}
+
+export async function dockerComposeSeed(): Promise<void> {
+  assertOk(
+    await run("docker", ["compose", ...COMPOSE_ARGS, "exec", "-T", "backend", "npm", "run", "seed"]),
+    "docker compose exec backend npm run seed"
+  );
+}
+
+export async function dockerComposeDown(): Promise<void> {
+  // Best-effort: teardown must never itself throw and mask the real test
+  // result — callers invoke this in a `finally` block.
+  await run("docker", ["compose", ...COMPOSE_ARGS, "down", "-v"]);
+}
+
+export async function dockerComposeIsHealthy(service: string): Promise<boolean> {
+  const r = await run("docker", ["compose", ...COMPOSE_ARGS, "ps", service, "--format", "{{.Status}}"]);
+  return r.stdout.toLowerCase().includes("healthy");
+}
+
+// ---------------------------------------------------------------------------
+// Shared comment/report formatters (canonical schemas, defined once)
+// ---------------------------------------------------------------------------
+
+/** The 📌/🔘/✍️ blocking-comment schema, defined verbatim in dev-loop.md and reused as-is by quality-analyst.md and tech-lead.md. */
+export function formatBlockingComment(reason: string, options: string[], header?: string): string {
+  const optionLines = options.map((opt, i) => `🔘 **Option ${i + 1}:** ${opt}`).join("\n\n");
+  const body = [
+    `📌 **Blocking Reason:** ${reason}`,
+    "",
+    optionLines,
+    "",
+    "✍️ **Custom Direction:** Reply with any of the options above, or describe what you'd like instead.",
+  ].join("\n");
+  return header ? `${header}\n\n${body}` : body;
+}
+
+export interface QaReportInput {
+  featureTitle: string;
+  passed: boolean;
+  prUrl: string;
+  desktopScreenshotUrl?: string;
+  mobileScreenshotUrl?: string;
+  executionSummary: string[];
+  acceptanceCriteria: { scenario: string; passed: boolean }[];
+  failureDetails?: string;
+}
+
+/** quality-analyst.md's QA report template, ported verbatim. */
+export function formatQaReport(input: QaReportInput): string {
+  const status = input.passed ? "PASS 🟢" : "FAIL 🔴";
+  const lines = [
+    "### 🧪 QA Automated Test Report",
+    "",
+    `**Target Feature:** ${input.featureTitle}`,
+    `**Test Status:** ${status}`,
+    `**PR:** ${input.prUrl}`,
+    "",
+    "---",
+    "",
+    "#### 📱 Visual Verification Evidence",
+    "",
+    "| Desktop (1280x720, chromium) | Mobile (Pixel 5, mobile-chromium) |",
+    "| :--- | :--- |",
+    `| ${input.desktopScreenshotUrl ? `![Desktop](${input.desktopScreenshotUrl})` : "n/a"} | ${
+      input.mobileScreenshotUrl ? `![Mobile](${input.mobileScreenshotUrl})` : "n/a"
+    } |`,
+    "",
+    "---",
+    "",
+    "#### 📋 Execution Summary",
+    ...input.executionSummary.map((s) => `- [x] ${s}`),
+    "- **Acceptance Criteria Check:**",
+    ...input.acceptanceCriteria.map((c, i) => `  - Scenario ${i + 1}: ${c.passed ? "Passed" : "Failed"} — ${c.scenario}`),
+  ];
+  if (!input.passed && input.failureDetails) {
+    lines.push("", "---", "", "#### 🔍 Failure Details", input.failureDetails);
+  }
+  return lines.join("\n");
+}
