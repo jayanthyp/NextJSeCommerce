@@ -56,12 +56,16 @@ const MAX_DEV_LOOP_ATTEMPTS = 3;
  *                       (leave ANTHROPIC_BASE_URL unset)
  *   DeepSeek:            ANTHROPIC_API_KEY = DeepSeek key
  *                       ANTHROPIC_BASE_URL = https://api.deepseek.com/anthropic
- *                       ANTHROPIC_MODEL    = deepseek-v4-pro[1m]
+ *                       ANTHROPIC_MODEL    = deepseek-v4-pro
  *
  * DeepSeek exposes an Anthropic-compatible Messages endpoint, so
  * `@langchain/anthropic` talks to it unchanged — only the base URL, model
  * name, and key change, all three together (an Anthropic key sent to the
  * DeepSeek endpoint, or vice-versa, fails auth).
+ *
+ * Use `deepseek-v4-pro`, NOT `deepseek-v4-pro[1m]`: the `[1m]` variant is a
+ * thinking-mode model that emits `thinking` blocks but no `tool_use`, which
+ * breaks structured extraction (see extractStructured()).
  */
 function getLlm(temperature = 0) {
   const baseURL = process.env.ANTHROPIC_BASE_URL;
