@@ -31,6 +31,7 @@ import {
   gitAdd,
   gitCommit,
   gitPush,
+  gitListFiles,
   runTechLeadApprove,
   runTechLeadMerge,
   runTechLeadRollback,
@@ -271,7 +272,7 @@ export async function uiDesignerNode(state: AgenticSdlcStateType): Promise<Parti
 // =============================================================================
 
 const CodeChangesSchema = z.object({
-  changes: z.array(z.object({ path: z.string(), content: z.string() })),
+  changes: z.array(z.object({ path: z.string(), content: z.string() })).min(1),
   summary: z.string().describe("One-paragraph summary of what changed and why, for the PR body"),
 });
 
@@ -299,6 +300,34 @@ function applyCodeChanges(changes: CodeChange[]): void {
   }
 }
 
+/**
+ * Reads a bounded snapshot of the tracked source files so the dev-loop LLM can
+ * modify real files with their exact paths + current contents, instead of
+ * hallucinating paths (e.g. `apps/storefront/...` for a repo laid out as
+ * `storefront/src/...`) and producing an empty/no-op diff.
+ */
+async function readRepoContext(): Promise<string> {
+  const files = await gitListFiles(["storefront/src", "medusa/src"]);
+  const source = files.filter((f) => /\.(ts|tsx|js|jsx)$/.test(f));
+  const parts: string[] = [];
+  let total = 0;
+  const MAX_TOTAL_BYTES = 60_000;
+  const MAX_FILE_BYTES = 6_000;
+  for (const file of source) {
+    if (total > MAX_TOTAL_BYTES) break;
+    let content: string;
+    try {
+      content = readFileSync(file, "utf-8");
+    } catch {
+      continue;
+    }
+    if (content.length > MAX_FILE_BYTES) continue;
+    parts.push(`=== ${file} ===\n${content}`);
+    total += content.length;
+  }
+  return parts.join("\n\n");
+}
+
 export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<AgenticSdlcStateType>> {
   const issue = await ghIssueView(state.issueNumber);
   await ghIssueEdit(state.issueNumber, {
@@ -323,6 +352,7 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
   }
 
   const commentsText = issue.comments.map((c) => `${c.author.login}: ${c.body}`).join("\n\n");
+  const repoContext = await readRepoContext();
   let attempts = 0;
   let lastError = "";
   let changes: CodeChange[] = [];
@@ -334,7 +364,8 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
       {
         role: "system",
         content:
-          "You are implementing a GitHub issue for a Medusa v2 + Next.js e-commerce monorepo. Follow existing conventions (Medusa module structure, 'use server' data functions, Playwright/Vitest patterns). Do not scope-creep beyond the issue. Return the exact file paths (relative to repo root, e.g. storefront/src/... or medusa/src/...) and full new file contents for every file you change.",
+          "You are implementing a GitHub issue for a Medusa v2 + Next.js e-commerce monorepo. Follow existing conventions (Medusa module structure, 'use server' data functions, Playwright/Vitest patterns). Do not scope-creep beyond the issue. Return the exact file paths (relative to repo root, e.g. storefront/src/... or medusa/src/...) and full new file contents for every file you change.\n\nThe repository source files (with current contents) are below — modify EXISTING files using their exact paths, never invent new paths:\n\n" +
+          repoContext,
       },
       {
         role: "user",

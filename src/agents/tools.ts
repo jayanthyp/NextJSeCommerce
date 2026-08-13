@@ -250,6 +250,13 @@ export async function gitPush(branch: string, opts: { setUpstream?: boolean } = 
   assertOk(await run("git", args), `git push origin ${branch}`);
 }
 
+/** Lists tracked source files under the given paths (e.g. ["storefront/src", "medusa/src"]). */
+export async function gitListFiles(paths: string[]): Promise<string[]> {
+  const r = await run("git", ["ls-files", ...paths]);
+  assertOk(r, "git ls-files");
+  return r.stdout.split("\n").filter((line) => line.trim().length > 0);
+}
+
 // ---------------------------------------------------------------------------
 // tech-lead wrapper scripts (reused as-is, not reimplemented — see CLAUDE.md
 // and the plan's decision #4)
