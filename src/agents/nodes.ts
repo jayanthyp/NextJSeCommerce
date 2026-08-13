@@ -63,9 +63,10 @@ const MAX_DEV_LOOP_ATTEMPTS = 3;
  * name, and key change, all three together (an Anthropic key sent to the
  * DeepSeek endpoint, or vice-versa, fails auth).
  *
- * Use `deepseek-v4-pro`, NOT `deepseek-v4-pro[1m]`: the `[1m]` variant is a
- * thinking-mode model that emits `thinking` blocks but no `tool_use`, which
- * breaks structured extraction (see extractStructured()).
+ * Use `deepseek-v4-pro` (not `deepseek-v4-pro[1m]`) and let getLlm() disable
+ * thinking: DeepSeek's endpoint emits `thinking` blocks by default (adaptive
+ * thinking), which leaves `res.tool_calls` empty and breaks structured
+ * extraction — see getLlm()'s `thinking: { type: "disabled" }`.
  */
 function getLlm(temperature = 0) {
   const baseURL = process.env.ANTHROPIC_BASE_URL;
@@ -73,7 +74,12 @@ function getLlm(temperature = 0) {
     model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5",
     temperature,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-    ...(baseURL ? { clientOptions: { baseURL } } : {}),
+    // DeepSeek's Anthropic-compatible endpoint defaults to adaptive thinking:
+    // the model emits `thinking` blocks that crowd out the `tool_use` block
+    // LangChain needs, so `res.tool_calls` comes back empty and structured
+    // extraction throws. Disable thinking explicitly on the DeepSeek path.
+    // Claude doesn't think unless `thinking` is enabled, so leave it unset.
+    ...(baseURL ? { thinking: { type: "disabled" as const }, clientOptions: { baseURL } } : {}),
   });
 }
 
