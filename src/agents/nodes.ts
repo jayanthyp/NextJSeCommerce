@@ -253,10 +253,11 @@ const CodeChangesSchema = z.object({
 });
 
 async function runDevLoopTests(): Promise<{ passed: boolean; log: string }> {
+  // Unit tests only — the integration suites (test:integration:modules/http)
+  // need a running Postgres, which the event-driven CI runner does not
+  // provision; the repo's own test.yml CI covers them on PR open.
   const steps: { cwd: "medusa" | "storefront"; script: string }[] = [
     { cwd: "medusa", script: "test:unit" },
-    { cwd: "medusa", script: "test:integration:modules" },
-    { cwd: "medusa", script: "test:integration:http" },
     { cwd: "storefront", script: "test:unit" },
   ];
   let log = "";
@@ -354,7 +355,7 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
     await gitPush(branch, { setUpstream: true });
     prNumber = await ghPrCreate(
       issue.title,
-      `Closes #${state.issueNumber}\n\n${summary}\n\n## Test plan\nnpm run test:unit && test:integration:modules && test:integration:http (medusa), npm run test:unit (storefront) — all passing.\n\ne2e not run locally — awaiting quality-analyst verification.`,
+      `Closes #${state.issueNumber}\n\n${summary}\n\n## Test plan\nnpm run test:unit (medusa + storefront) — passing. e2e not run locally — awaiting quality-analyst verification.`,
       branch
     );
   }
