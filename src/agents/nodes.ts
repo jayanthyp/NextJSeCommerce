@@ -112,14 +112,37 @@ async function extractStructured<S extends z.ZodTypeAny>(
     ],
     { tool_choice: "any" }
   );
-  const res = await llm.invoke(messages as never);
-  const toolCall = res.tool_calls?.[0];
-  if (!toolCall) {
-    throw new Error(
-      `LLM emitted no tool call for structured extraction (content: ${JSON.stringify(res.content)?.slice(0, 300)})`
-    );
+
+  // DeepSeek occasionally emits an empty `tool_use` (no `input`) under
+  // `tool_choice: "any"` — especially for large outputs like full file
+  // contents — and other times emits a valid one for the identical prompt.
+  // Retry with a corrective nudge up to a bounded number of times instead of
+  // failing the whole graph run on a transient empty call.
+  const MAX_ATTEMPTS = 3;
+  let history = messages as object[];
+  let lastError = "no tool call";
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const res = await llm.invoke(history as never);
+    const toolCall = res.tool_calls?.[0];
+    if (!toolCall) {
+      lastError = "no tool call";
+      history = [...history, { role: "user", content: "You did not call the extract tool. Call it with the full structured arguments." }];
+      continue;
+    }
+    try {
+      return schema.parse(toolCall.args);
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      history = [
+        ...history,
+        {
+          role: "user",
+          content: `Your extract tool call was missing required fields and failed validation. Re-read the request and return the COMPLETE structured output (do not emit an empty tool call). Validation error: ${lastError}`,
+        },
+      ];
+    }
   }
-  return schema.parse(toolCall.args);
+  throw new Error(`extractStructured failed after ${MAX_ATTEMPTS} attempts (${lastError})`);
 }
 
 /** Whether the most recent comment is a genuine new reply from the repo owner, not the agent's own prior comment. Mirrors tech-lead.md's / ui-designer.md's reply-detection pattern. */
