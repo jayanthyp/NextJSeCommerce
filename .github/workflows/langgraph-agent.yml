@@ -1,0 +1,76 @@
+name: LangGraph Agentic SDLC Trigger
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+
+# GITHUB_TOKEN's default permissions can be read-only depending on repo/org
+# settings, which would silently 403 on `gh issue edit`/`gh pr create` inside
+# trigger.ts. Every node except tech-lead's approve/merge/rollback acts under
+# this token (via GH_TOKEN below), so it needs write access to all three.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  run-langgraph-agent:
+    # Guardrail: Prevent infinite execution loops by ignoring comments/actions made by bot accounts
+    if: ${{ !github.event.comment.user.login || !endsWith(github.event.comment.user.login, '[bot]') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers (for QA Node)
+        run: npx playwright install --with-deps chromium
+
+      - name: Execute LangGraph Orchestrator
+        env:
+          # Model Provider Keys
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          
+          # GitHub API Access
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # Separate tech-lead bot identity — required by
+          # scripts/tech-lead-approve.sh/-merge.sh/-rollback-revert.sh
+          # (techLeadNode). Must be a DIFFERENT account than GITHUB_TOKEN's
+          # github-actions[bot] identity: every other node's actions (PR
+          # creation, issue comments) post as github-actions[bot], and GitHub
+          # refuses to let an account approve its own PR. Same one-time bot
+          # setup CLAUDE.md's "Tech-lead bot identity setup" section
+          # documents for the .claude/agents/tech-lead.md agent — reuse that
+          # secret here, no new setup needed if it's already configured.
+          TECH_LEAD_GH_TOKEN: ${{ secrets.TECH_LEAD_GH_TOKEN }}
+
+          # LangSmith Observability & Tracing Configuration
+          LANGCHAIN_TRACING_V2: "true"
+          LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_PROJECT: "e-commerce-sdlc"
+          LANGCHAIN_ENDPOINT: "https://api.smith.langchain.com"
+        run: |
+          # Extract issue number based on event type
+          ISSUE_NUMBER="${{ github.event.issue.number }}"
+          
+          echo "🚀 Triggering LangGraph for Issue #${ISSUE_NUMBER}..."
+          
+          # Execute the TypeScript trigger script passing the GitHub event context
+          npx tsx scripts/trigger.ts \
+            --issue "${ISSUE_NUMBER}" \
+            --event "${{ github.event_name }}" \
+            --action "${{ github.event.action }}"

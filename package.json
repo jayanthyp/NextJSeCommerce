@@ -1,0 +1,27 @@
+{
+  "name": "nextjsecommerce-agentic-sdlc",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "LangGraph.js event-driven orchestrator for the NextJSeCommerce agentic SDLC (business-analyst / ui-designer / dev-loop / quality-analyst / tech-lead), triggered by GitHub issue/label/comment webhooks via .github/workflows/langgraph-agent.yml instead of polling.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "trigger": "tsx scripts/trigger.ts",
+    "typecheck": "tsc --noEmit",
+    "studio": "langgraph dev"
+  },
+  "dependencies": {
+    "@langchain/anthropic": "^1.5.5",
+    "@langchain/core": "^1.2.6",
+    "@langchain/langgraph": "^1.4.9",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@langchain/langgraph-cli": "^1.4.4",
+    "@types/node": "^20.16.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
