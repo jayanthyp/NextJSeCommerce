@@ -50,6 +50,13 @@ jobs:
       - name: Install Playwright Browsers (for QA Node)
         run: npx playwright install --with-deps chromium
 
+      # devLoopNode runs `git commit` / `git push`; the runner has no git
+      # identity by default, which fails with "Author identity unknown".
+      - name: Configure Git Identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Execute LangGraph Orchestrator
         env:
           # Model Provider — Claude by default, DeepSeek when Anthropic credit
