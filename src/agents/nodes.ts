@@ -726,9 +726,21 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
     const publishableKey = await dockerComposeGetPublishableKey();
     updateLocalEnvPublishableKey(publishableKey);
     await dockerComposeRebuildStorefront();
-    await sleep(15000); // let the rebuilt storefront boot
+
+    // Wait for the rebuilt storefront to actually be healthy before running E2E.
+    // The rebuild restarts the container and a cold Next.js boot can exceed the
+    // old fixed 15s sleep, leaving every test to hit a dead :3000.
+    let storefrontHealthy = false;
+    for (let i = 0; i < 24 && !storefrontHealthy; i++) {
+      storefrontHealthy = await dockerComposeIsHealthy("storefront");
+      if (!storefrontHealthy) await sleep(5000);
+    }
+    if (!storefrontHealthy) throw new Error("storefront never became healthy within 120s");
 
     const run = await runPlaywright("http://localhost:3000", ["chromium", "mobile-chromium"]);
+    // Surface the full E2E output in the workflow log (not just the truncated
+    // tail that reaches the issue comment) so a systemic failure is diagnosable.
+    console.log(`[qa] Playwright exit ${run.exitCode}:\n${run.stdout}\n${run.stderr}`);
     testResults = { passed: run.exitCode === 0, log: (run.stdout + run.stderr).slice(-8000) };
   } catch (err) {
     testResults = { passed: false, log: err instanceof Error ? err.message : String(err) };
