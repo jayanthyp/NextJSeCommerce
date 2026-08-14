@@ -355,6 +355,35 @@ export async function dockerComposeIsHealthy(service: string): Promise<boolean> 
   return r.stdout.toLowerCase().includes("healthy");
 }
 
+/** Reads the storefront's publishable API key (seeded into Postgres) — mirrors scripts/get-publishable-key.sh. */
+export async function dockerComposeGetPublishableKey(): Promise<string> {
+  const r = await run("docker", [
+    "compose",
+    ...COMPOSE_ARGS,
+    "exec",
+    "-T",
+    "postgres",
+    "psql",
+    "-U",
+    "medusa",
+    "-d",
+    "medusa",
+    "-tAc",
+    "select token from api_key where type = 'publishable' and revoked_at is null order by created_at limit 1;",
+  ]);
+  if (r.exitCode !== 0 || !r.stdout.trim()) throw new Error(`publishable key not found: ${r.stderr || r.stdout}`);
+  return r.stdout.trim();
+}
+
+/** Rebuilds + restarts the storefront so the publishable key (inlined at build time) takes effect. */
+export async function dockerComposeRebuildStorefront(): Promise<void> {
+  assertOk(
+    await run("docker", ["compose", ...COMPOSE_ARGS, "build", "--no-cache", "storefront"]),
+    "docker compose build storefront"
+  );
+  assertOk(await run("docker", ["compose", ...COMPOSE_ARGS, "up", "-d", "storefront"]), "docker compose up storefront");
+}
+
 // ---------------------------------------------------------------------------
 // Shared comment/report formatters (canonical schemas, defined once)
 // ---------------------------------------------------------------------------

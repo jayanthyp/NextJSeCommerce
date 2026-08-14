@@ -42,6 +42,8 @@ import {
   dockerComposeDown,
   dockerComposeSeed,
   dockerComposeIsHealthy,
+  dockerComposeGetPublishableKey,
+  dockerComposeRebuildStorefront,
   formatBlockingComment,
   formatQaReport,
 } from "./tools.js";
@@ -361,6 +363,17 @@ async function writeLocalEnv(): Promise<void> {
   writeFileSync(".env", env, "utf-8");
 }
 
+/** Updates the .env with the real publishable key fetched after seeding. */
+function updateLocalEnvPublishableKey(key: string): void {
+  let env = readFileSync(".env", "utf-8");
+  if (/^NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=/m.test(env)) {
+    env = env.replace(/^NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=.*$/m, `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=${key}`);
+  } else {
+    env += `\nNEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=${key}\n`;
+  }
+  writeFileSync(".env", env, "utf-8");
+}
+
 export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<AgenticSdlcStateType>> {
   const issue = await ghIssueView(state.issueNumber);
   await ghIssueEdit(state.issueNumber, {
@@ -542,6 +555,14 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
     }
     if (!healthy) throw new Error("backend never became healthy within 120s");
     await dockerComposeSeed();
+
+    // The publishable key is generated at seed time and inlined into the
+    // storefront bundle at build time, so fetch it and rebuild the storefront
+    // with it before running the E2E suite (else the catalog is empty).
+    const publishableKey = await dockerComposeGetPublishableKey();
+    updateLocalEnvPublishableKey(publishableKey);
+    await dockerComposeRebuildStorefront();
+    await sleep(15000); // let the rebuilt storefront boot
 
     const run = await runPlaywright("http://localhost:3000", ["chromium", "mobile-chromium"]);
     testResults = { passed: run.exitCode === 0, log: (run.stdout + run.stderr).slice(-8000) };
