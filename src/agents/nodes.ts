@@ -53,6 +53,13 @@ import {
 
 const MAX_DEV_LOOP_ATTEMPTS = 5;
 
+// Dev↔QA round-trips allowed before a persistent E2E failure is escalated to
+// tech-lead instead of looping back through dev-loop. Satisfies the autonomy
+// requirement of "at least thrice on each side": quality-analyst hands back to
+// dev-loop for MAX_QA_ROUNDS consecutive E2E failures, then the next failure
+// escalates to tech-lead (status:blocked).
+const MAX_QA_ROUNDS = 3;
+
 /**
  * Single place every node instantiates its LLM from. Provider is chosen by
  * env vars, so switching between Claude and DeepSeek (the repo's fallback
@@ -492,6 +499,27 @@ function updateLocalEnvPublishableKey(key: string): void {
   writeFileSync(".env", env, "utf-8");
 }
 
+/**
+ * Builds the context dev-loop reasons over when it re-enters after a QA E2E
+ * failure: the failure log itself, plus the content of every e2e spec file the
+ * log names. Without the spec content the model can't see what the failing test
+ * actually asserts, so it would just guess at the source (the same hallucination
+ * class that broke the path-index case earlier).
+ */
+async function readE2eFailureContext(log: string): Promise<string> {
+  const specPaths = [...new Set((log.match(/[a-zA-Z0-9_/\-]+\.spec\.(ts|tsx)/g) ?? []))];
+  const parts: string[] = [`\n\n## Quality-analyst E2E failure (fix this):\n\`\`\`\n${log.slice(-4000)}\n\`\`\``];
+  for (const p of specPaths) {
+    const full = p.startsWith("storefront/") ? p : `storefront/${p}`;
+    try {
+      parts.push(`\n=== ${full} ===\n${readFileSync(full, "utf-8")}`);
+    } catch {
+      // A spec path taken from the log may not exist verbatim on disk — skip.
+    }
+  }
+  return parts.join("\n");
+}
+
 export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<AgenticSdlcStateType>> {
   const issue = await ghIssueView(state.issueNumber);
   await ghIssueEdit(state.issueNumber, {
@@ -517,6 +545,11 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
 
   const commentsText = issue.comments.map((c) => `${c.author.login}: ${c.body}`).join("\n\n");
   const repoContext = await readRepoContext(`${issue.title}\n${issue.body}`);
+  // QA-failure re-entry: quality-analyst hands back here with the E2E failure
+  // log in state (see routeAfterQualityAnalyst). Surface it — plus the failing
+  // spec file — so the model targets the actual E2E failure, not just the issue.
+  const qaFailureLog = state.testResults && !state.testResults.passed ? state.testResults.log : null;
+  const qaContext = qaFailureLog ? await readE2eFailureContext(qaFailureLog) : "";
   let attempts = 0;
   let lastError = "";
   let changes: CodeChange[] = [];
@@ -534,8 +567,8 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
       {
         role: "user",
         content: lastError
-          ? `Previous attempt was rejected or failed:\n${lastError}\n\nFix the code accordingly. Original issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}\n\nComments:\n${commentsText}`
-          : `Issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}\n\nComments:\n${commentsText}`,
+          ? `Previous attempt was rejected or failed:\n${lastError}\n\nFix the code accordingly. Original issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}${qaContext}\n\nComments:\n${commentsText}`
+          : `Issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}${qaContext}\n\nComments:\n${commentsText}`,
       },
     ]);
 
@@ -624,6 +657,9 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
 
 export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<Partial<AgenticSdlcStateType>> {
   const issue = await ghIssueView(state.issueNumber);
+  // Drives the dev↔QA autonomous-retry bound: incremented on every QA run,
+  // read by routeAfterQualityAnalyst (via the label) to decide retry vs escalate.
+  const qaAttemptCount = (state.qaAttemptCount ?? 0) + 1;
   const prs = (await ghPrList(`${state.issueNumber} in:body`, "number,headRefName,url")) as {
     number: number;
     headRefName: string;
@@ -785,10 +821,23 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
 
   if (testResults.passed) {
     await ghIssueEdit(state.issueNumber, { addLabel: "status:in-review", removeLabel: "status:qa-in-progress" });
-    return { currentLabel: "status:in-review", testResults, prNumber: pr.number };
+    return { currentLabel: "status:in-review", testResults, prNumber: pr.number, qaAttemptCount };
   }
+
+  if (qaAttemptCount <= MAX_QA_ROUNDS) {
+    // Within the dev↔QA round budget: hand back to dev-loop in-process by
+    // relabeling ready-for-dev (routeAfterQualityAnalyst routes on this),
+    // carrying the E2E failure log in state.testResults for the next pass to
+    // fix. The QA report comment was already posted above, so the failure is
+    // both in state and on the issue (per the "state + comment" decision).
+    await ghIssueEdit(state.issueNumber, { addLabel: "status:ready-for-dev", removeLabel: "status:qa-in-progress" });
+    return { currentLabel: "status:ready-for-dev", testResults, prNumber: pr.number, qaAttemptCount };
+  }
+
+  // Budget exhausted — escalate to tech-lead (status:blocked) for human-in-the-
+  // loop direction rather than looping dev↔QA forever.
   await ghIssueEdit(state.issueNumber, { addLabel: "status:blocked", removeLabel: "status:qa-in-progress" });
-  return { currentLabel: "status:blocked", testResults, prNumber: pr.number };
+  return { currentLabel: "status:blocked", testResults, prNumber: pr.number, qaAttemptCount };
 }
 
 // =============================================================================

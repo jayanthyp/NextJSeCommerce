@@ -75,6 +75,18 @@ export const AgenticSdlcState = Annotation.Root({
     reducer: (_prev, next) => next,
     default: () => 0,
   }),
+
+  /**
+   * How many times qualityAnalystNode has run this graph run — drives the
+   * dev↔QA autonomous-retry bound (see MAX_QA_ROUNDS in nodes.ts). In-run only,
+   * like everything else here: the dev→QA→dev→… loop is chained in a single
+   * process, so a plain counter in state is enough; it does not need to survive
+   * across runs.
+   */
+  qaAttemptCount: Annotation<number>({
+    reducer: (_prev, next) => next,
+    default: () => 0,
+  }),
 });
 
 export type AgenticSdlcStateType = typeof AgenticSdlcState.State;
