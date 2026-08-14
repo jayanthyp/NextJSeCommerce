@@ -363,13 +363,25 @@ export async function dockerComposeUp(): Promise<void> {
 }
 
 export async function dockerComposeSeed(): Promise<void> {
-  // Seed the COMPILED script (./src/scripts/seed.js), not `npm run seed` — the
+  // Seed the COMPILED scripts (./src/scripts/*.js), not `npm run seed` — the
   // production image ships only the built `.medusa/server` tree, so the `.ts`
   // source referenced by the `seed` npm script doesn't exist in the container
   // (mirrors scripts/bootstrap.sh).
+  //
+  // Two scripts, in order: seed.js creates products + the publishable key but
+  // only the EUROPE region (gb/de/dk/se/fr/es/it); add-global-regions.js adds
+  // India/Australia/etc. The storefront's SELECTABLE_COUNTRY_CODES (issue #15)
+  // restrict the country dropdown to India/Australia only, so without the
+  // second script there is no "au" region and every /au/... URL 404s — leaving
+  // the catalog empty and failing every E2E spec (root-caused on #33/#28, and
+  // mirrored in .github/workflows/test.yml's seed steps).
   assertOk(
     await run("docker", ["compose", ...COMPOSE_ARGS, "exec", "-T", "backend", "npx", "medusa", "exec", "./src/scripts/seed.js"]),
     "docker compose exec backend npx medusa exec ./src/scripts/seed.js"
+  );
+  assertOk(
+    await run("docker", ["compose", ...COMPOSE_ARGS, "exec", "-T", "backend", "npx", "medusa", "exec", "./src/scripts/add-global-regions.js"]),
+    "docker compose exec backend npx medusa exec ./src/scripts/add-global-regions.js"
   );
 }
 
