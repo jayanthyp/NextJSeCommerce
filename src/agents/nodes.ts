@@ -496,6 +496,7 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
   await ghIssueEdit(state.issueNumber, { addLabel: "status:qa-in-progress", removeLabel: "status:ready-for-qa" });
 
   const checks = await ghPrChecks(pr.number);
+  console.log(`[qa] PR #${pr.number} checks: ${JSON.stringify(checks)}`);
   const pending = checks.filter((c) => c.bucket === "pending");
   if (pending.length > 0) {
     // Known limitation: this workflow doesn't subscribe to check_suite/workflow_run
@@ -545,6 +546,7 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
   }
 
   let testResults: { passed: boolean; log: string };
+  console.log("[qa] entering docker compose + E2E path");
   try {
     await writeLocalEnv();
     await dockerComposeUp();
