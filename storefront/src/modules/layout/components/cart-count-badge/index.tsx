@@ -17,7 +17,7 @@ const CartCountBadge = ({ count }: CartCountBadgeProps) => {
 
   return (
     <span
-      className="absolute -top-1.5 -right-1.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-ui-fg-base text-white text-[10px] leading-none pointer-events-none"
+      className="absolute -top-1.5 -right-1.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-ui-fg-base text-ui-bg-base text-[10px] leading-none pointer-events-none"
       data-testid="cart-count-badge"
       aria-hidden="true"
     >
