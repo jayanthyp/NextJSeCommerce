@@ -79,6 +79,14 @@ function getLlm(temperature = 0) {
   return new ChatAnthropic({
     model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5",
     temperature,
+    // ChatAnthropic defaults maxTokens to 1024. Under DeepSeek's endpoint, a
+    // large context (the dev-loop prompt carries ~17K input tokens of repo
+    // source) makes the model "hedge": with only 1024 output tokens budgeted
+    // it emits plain text and ends the turn (`stop_reason: end_turn`) instead
+    // of committing to the `tool_use` block `extractStructured` needs, so
+    // `res.tool_calls` comes back empty. A larger budget (4096) lets it emit
+    // the tool call reliably (~86 output tokens for a one-line edit).
+    maxTokens: 4096,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     // DeepSeek's Anthropic-compatible endpoint defaults to adaptive thinking:
     // the model emits `thinking` blocks that crowd out the `tool_use` block
