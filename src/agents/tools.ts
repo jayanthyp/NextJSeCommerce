@@ -384,6 +384,12 @@ export async function dockerComposeIsHealthy(service: string): Promise<boolean> 
   return r.stdout.toLowerCase().includes("healthy");
 }
 
+/** Tail a service's logs — used by the QA node's diagnostic probe to surface runtime errors. */
+export async function dockerComposeLogs(service: string, tail = 100): Promise<string> {
+  const r = await run("docker", ["compose", ...COMPOSE_ARGS, "logs", "--tail", String(tail), service]);
+  return `${r.stdout}\n${r.stderr}`.slice(-4000);
+}
+
 /** Reads the storefront's publishable API key (seeded into Postgres) — mirrors scripts/get-publishable-key.sh. */
 export async function dockerComposeGetPublishableKey(): Promise<string> {
   const r = await run("docker", [

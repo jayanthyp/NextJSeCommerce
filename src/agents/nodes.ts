@@ -44,6 +44,7 @@ import {
   dockerComposeDown,
   dockerComposeSeed,
   dockerComposeIsHealthy,
+  dockerComposeLogs,
   dockerComposeGetPublishableKey,
   dockerComposeRebuildStorefront,
   formatBlockingComment,
@@ -736,6 +737,29 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
       if (!storefrontHealthy) await sleep(5000);
     }
     if (!storefrontHealthy) throw new Error("storefront never became healthy within 120s");
+
+    // Diagnostic probe: distinguish empty-catalog vs auth vs connectivity. The
+    // E2E failures are all `product-container` 404s, so log (1) the backend's
+    // product list with the fetched publishable key, (2) the storefront's
+    // rendered home page, and (3) the storefront's own server logs.
+    try {
+      const backendRes = await fetch("http://localhost:9000/store/products?limit=3", {
+        headers: { "x-publishable-api-key": publishableKey },
+      });
+      console.log(`[qa] backend /store/products status: ${backendRes.status}`);
+      console.log(`[qa] backend /store/products body: ${(await backendRes.text()).slice(0, 500)}`);
+    } catch (e) {
+      console.log(`[qa] backend probe failed: ${e}`);
+    }
+    try {
+      const homeRes = await fetch("http://localhost:3000/");
+      const home = await homeRes.text();
+      console.log(`[qa] storefront home status: ${homeRes.status}, length: ${home.length}`);
+      console.log(`[qa] storefront home body (first 400): ${home.slice(0, 400)}`);
+    } catch (e) {
+      console.log(`[qa] storefront home probe failed: ${e}`);
+    }
+    console.log(`[qa] storefront logs (tail):\n${await dockerComposeLogs("storefront", 80)}`);
 
     const run = await runPlaywright("http://localhost:3000", ["chromium", "mobile-chromium"]);
     // Surface the full E2E output in the workflow log (not just the truncated
