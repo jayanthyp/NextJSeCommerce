@@ -32,7 +32,10 @@ function routeFromEntry(state: AgenticSdlcStateType): "ui_designer" | "dev_loop"
 
 function routeAfterQualityAnalyst(state: AgenticSdlcStateType): "dev_loop" | "tech_lead" | typeof END {
   if (!state.testResults) return END;
-  return state.testResults.passed ? "tech_lead" : "dev_loop";
+  // On E2E failure, stop and leave the issue blocked for a human — re-routing
+  // to dev_loop just re-implements already-committed code ("nothing to
+  // commit") instead of actually fixing the failure.
+  return state.testResults.passed ? "tech_lead" : END;
 }
 
 const builder = new StateGraph(AgenticSdlcState)
