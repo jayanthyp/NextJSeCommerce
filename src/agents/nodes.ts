@@ -32,6 +32,7 @@ import {
   gitCommit,
   gitPush,
   gitListFiles,
+  gitHasStagedChanges,
   runTechLeadApprove,
   runTechLeadMerge,
   runTechLeadRollback,
@@ -490,8 +491,12 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
     );
     writeFileSync(configPath, patched, "utf-8");
     await gitAdd([configPath]);
-    await gitCommit("Add mobile-chromium Playwright project for QA node");
-    await gitPush(pr.headRefName);
+    // Only commit when there's actually a staged diff — a prior QA run (or the
+    // dev-loop itself) may already have landed mobile-chromium on the branch.
+    if (await gitHasStagedChanges()) {
+      await gitCommit("Add mobile-chromium Playwright project for QA node");
+      await gitPush(pr.headRefName);
+    }
   }
 
   let testResults: { passed: boolean; log: string };

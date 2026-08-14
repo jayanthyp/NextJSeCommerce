@@ -257,6 +257,12 @@ export async function gitListFiles(paths: string[]): Promise<string[]> {
   return r.stdout.split("\n").filter((line) => line.trim().length > 0);
 }
 
+/** Whether there are staged changes (for idempotent "commit only if changed" flows). */
+export async function gitHasStagedChanges(): Promise<boolean> {
+  const r = await run("git", ["diff", "--cached", "--quiet"]);
+  return r.exitCode !== 0; // --quiet exits 1 when there are differences, 0 when clean
+}
+
 // ---------------------------------------------------------------------------
 // tech-lead wrapper scripts (reused as-is, not reimplemented — see CLAUDE.md
 // and the plan's decision #4)
