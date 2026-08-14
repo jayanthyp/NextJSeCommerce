@@ -475,6 +475,10 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
     return { currentLabel: "status:blocked", testResults: { passed: false, log: "CI red" } };
   }
 
+  // Work on the PR's branch, not main — the E2E stack must run against the code
+  // under test, and the mobile-chromium project addition must land on the PR.
+  await gitCheckout(pr.headRefName);
+
   // Ensure the mobile-chromium project exists (quality-analyst.md requirement;
   // confirmed absent from storefront/playwright.config.ts by exploration).
   const configPath = "storefront/playwright.config.ts";
