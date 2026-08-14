@@ -643,16 +643,30 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
 
   await ghIssueEdit(state.issueNumber, { addLabel: "status:qa-in-progress", removeLabel: "status:ready-for-qa" });
 
-  const checks = await ghPrChecks(pr.number);
-  console.log(`[qa] PR #${pr.number} checks: ${JSON.stringify(checks)}`);
-  const pending = checks.filter((c) => c.bucket === "pending");
-  if (pending.length > 0) {
-    // Known limitation: this workflow doesn't subscribe to check_suite/workflow_run
-    // completion events, so a pending-CI run has no automatic future retrigger
-    // the way the old 3-minute poll did. Left as a note for a follow-up webhook
-    // subscription rather than solved here (see migration plan / README).
+  // Gate on the PR's own CI — but tolerate the case where NO checks exist at
+  // all: a PR opened with GITHUB_TOKEN (which dev-loop uses) does not trigger
+  // test.yml, so `gh pr checks` is empty. In that case skip the gate (dev-loop
+  // already ran unit tests in this same run) and go straight to E2E. If checks
+  // DO exist, poll for a terminal state (wiring check_suite webhooks would be
+  // cleaner, but this keeps the loop in one process — which it must be, since
+  // GITHUB_TOKEN-created events don't re-trigger this workflow).
+  const CI_WAIT_TIMEOUT_MS = 5 * 60_000;
+  let waited = 0;
+  let checks = await ghPrChecks(pr.number);
+  if (checks.length > 0) {
+    while (waited < CI_WAIT_TIMEOUT_MS && checks.some((c) => c.bucket === "pending")) {
+      await sleep(15_000);
+      waited += 15_000;
+      checks = await ghPrChecks(pr.number);
+    }
+  }
+  console.log(`[qa] PR #${pr.number} checks after ${Math.round(waited / 1000)}s: ${JSON.stringify(checks)}`);
+
+  if (checks.some((c) => c.bucket === "pending")) {
+    // Still pending after the bounded wait — leave it ready-for-qa for a later
+    // retrigger rather than blocking.
     await ghIssueEdit(state.issueNumber, { addLabel: "status:ready-for-qa", removeLabel: "status:qa-in-progress" });
-    return {}; // no-op this run; needs a later manual re-label or a check_suite trigger to retry
+    return {};
   }
 
   const failed = checks.filter((c) => c.bucket === "fail");
