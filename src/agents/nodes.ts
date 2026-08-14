@@ -277,7 +277,15 @@ export async function uiDesignerNode(state: AgenticSdlcStateType): Promise<Parti
 // =============================================================================
 
 const CodeChangesSchema = z.object({
-  changes: z.array(z.object({ path: z.string(), content: z.string() })).min(1),
+  changes: z
+    .array(
+      z.object({
+        path: z.string().describe("Exact file path (relative to repo root)"),
+        search: z.string().describe("The exact existing code snippet to find (copy it verbatim, including whitespace)"),
+        replace: z.string().describe("The replacement snippet — the minimal change, nothing else"),
+      })
+    )
+    .min(1),
   summary: z.string().describe("One-paragraph summary of what changed and why, for the PR body"),
 });
 
@@ -300,8 +308,14 @@ async function runDevLoopTests(): Promise<{ passed: boolean; log: string }> {
 
 function applyCodeChanges(changes: CodeChange[]): void {
   for (const change of changes) {
-    mkdirSync(dirname(change.path), { recursive: true });
-    writeFileSync(change.path, change.content, "utf-8");
+    const content = readFileSync(change.path, "utf-8");
+    if (!content.includes(change.search)) {
+      throw new Error(
+        `Search text not found in ${change.path}. The LLM's "search" didn't match the file — retry with a verbatim copy.\nSearch: ${change.search.slice(0, 200)}`
+      );
+    }
+    const newContent = content.replace(change.search, change.replace);
+    writeFileSync(change.path, newContent, "utf-8");
   }
 }
 
@@ -412,7 +426,7 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
       {
         role: "system",
         content:
-          "You are implementing a GitHub issue by making the SMALLEST possible change to existing code.\n\nRules (non-negotiable):\n1. MINIMAL DIFF — modify only the exact line(s) needed. Adding one attribute (e.g. loading=\"lazy\") should be a single-line change.\n2. RIGHT FILE — locate the single file that actually contains the element the issue targets. If the issue is about an image, find the file with the <img>/<Image> tag and edit THAT file, not its parent wrapper.\n3. NO REFACTORING — do not rename props/imports, do not change data-fetching or component logic, do not reformat, do not touch unrelated files.\n4. PRESERVE every unchanged part verbatim (whitespace, imports, comments).\n\nReturn the full content of ONLY the file(s) you change, with all unchanged parts identical to the source below. The repository source files (current contents) are:\n\n" +
+          "You are implementing a GitHub issue by making the SMALLEST possible code change, expressed as a search/replace edit.\n\nRules (non-negotiable):\n1. MINIMAL DIFF — change only the exact line(s) needed. Adding one attribute (e.g. loading=\"lazy\") is a one-line change.\n2. RIGHT FILE — locate the single file that actually contains the element the issue targets. If the issue is about an image, find the file with the <img>/<Image> tag and edit THAT file, not its parent wrapper.\n3. NO REFACTORING — do not rename props/imports, do not change logic, do not reformat, do not touch unrelated files.\n\nFor each edit, provide:\n- `path`: the exact file path.\n- `search`: the exact existing snippet, copied VERBATIM from the file below (including whitespace/indentation).\n- `replace`: that same snippet with ONLY the minimal change applied.\n\nThe repository source files (current contents) are below:\n\n" +
           repoContext,
       },
       {
@@ -425,7 +439,13 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
 
     changes = result.changes;
     summary = result.summary;
-    applyCodeChanges(changes);
+    try {
+      applyCodeChanges(changes);
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      await gitDiscardChanges();
+      continue;
+    }
 
     // Reject scope-creep: a broad rewrite instead of a minimal edit.
     const diff = await gitDiffSummary();

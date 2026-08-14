@@ -21,10 +21,11 @@
  */
 import { Annotation } from "@langchain/langgraph";
 
-/** A single file edit produced by devLoopNode's LLM call, and later applied via fs.writeFileSync. */
+/** A single file edit produced by devLoopNode's LLM call, and later applied via a search/replace. */
 export interface CodeChange {
   path: string;
-  content: string;
+  search: string;
+  replace: string;
 }
 
 /** Outcome of qualityAnalystNode's native (zero-LLM) Playwright run. */
