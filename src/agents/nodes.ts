@@ -12,6 +12,7 @@ import { interrupt } from "@langchain/langgraph";
 import { ChatAnthropic } from "@langchain/anthropic";
 import { tool as makeTool } from "@langchain/core/tools";
 import { z } from "zod";
+import * as ts from "typescript";
 import type { AgenticSdlcStateType, CodeChange } from "./state.js";
 import {
   ghIssueView,
@@ -364,21 +365,116 @@ function deriveSearchTerms(issueText: string): string[] {
 }
 
 /**
- * Builds the repo context the dev-loop LLM reasons over. Two halves:
+ * Builds the repo context the dev-loop LLM reasons over, via a runtime AST
+ * index (TypeScript compiler API — already a devDependency) instead of a raw
+ * text dump. The old approach shipped ~40KB of full file content plus ~400
+ * grep lines just to locate a single edit — that blew out the token window and
+ * still mislocated the target. The AST index gives two compact halves instead:
  *
- * 1. A FULL path index (every tracked source file) — so the LLM can never
- *    hallucinate a path like `.../product-image/index.tsx` when the real file
- *    is `.../thumbnail/index.tsx`.
- * 2. Deterministically-located candidate files: files whose body matches the
- *    issue's terms, ranked by relevance (rare terms weigh more than generic
- *    ones), with FULL content for the top candidates and line-numbered grep
- *    evidence for the wider set. Locating the file is a search problem, so it
- *    is solved here with a deterministic scan — not left to the LLM to guess.
+ * 1. A FULL path index (every tracked source file) — unchanged, the
+ *    anti-hallucination guarantee that the model can never invent a path.
+ * 2. A hybrid symbol map + targeted-node dump: parse each file, collect its
+ *    declared symbols (components/hooks/classes/types with line numbers) for
+ *    navigation, and extract the specific AST nodes whose JSX tag/attribute
+ *    text matches the issue's terms — verbatim, with line numbers — so the
+ *    model's `search` string is anchored to a real node, not a guess.
  *
- * The old alphabetical-first 60KB dump was the bug: it covered only the first
- * ~57 of 337 files (everything under `storefront/src/app/...`) and never
- * reached `storefront/src/modules/...`, so the model invented paths.
+ * Locating the target stays a deterministic scan (never left to the LLM); the
+ * LLM's only job is the minimal search/replace against the exact text shown.
  */
+
+/** Maps a file extension to the TS compiler's ScriptKind for parsing. */
+function scriptKindFor(path: string): ts.ScriptKind {
+  if (path.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (path.endsWith(".jsx")) return ts.ScriptKind.JSX;
+  if (path.endsWith(".js")) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
+}
+
+/** A "where things live" symbol — one top-level declared name, for navigation only. */
+interface SymbolRef {
+  kind: string;
+  name: string;
+  line: number;
+}
+
+/** Collects a file's top-level declarations into a compact symbol map. */
+function collectSymbols(sf: ts.SourceFile): SymbolRef[] {
+  const refs: SymbolRef[] = [];
+  const classify = (name: string) => (/^use[A-Z]/.test(name) ? "hook" : /^[A-Z]/.test(name) ? "component" : "fn");
+  const line = (node: ts.Node) => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+  for (const node of sf.statements) {
+    if (ts.isFunctionDeclaration(node) && node.name) {
+      refs.push({ kind: classify(node.name.text), name: node.name.text, line: line(node) });
+    } else if (ts.isClassDeclaration(node) && node.name) {
+      refs.push({ kind: "class", name: node.name.text, line: line(node) });
+    } else if (ts.isInterfaceDeclaration(node)) {
+      refs.push({ kind: "interface", name: node.name.text, line: line(node) });
+    } else if (ts.isTypeAliasDeclaration(node)) {
+      refs.push({ kind: "type", name: node.name.text, line: line(node) });
+    } else if (ts.isVariableStatement(node)) {
+      for (const decl of node.declarationList.declarations) {
+        if (!ts.isIdentifier(decl.name)) continue;
+        const isFn = !!decl.initializer && (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer));
+        refs.push({ kind: isFn ? classify(decl.name.text) : "const", name: decl.name.text, line: line(node) });
+      }
+    }
+  }
+  return refs;
+}
+
+/** A verbatim AST node whose text matches the issue's terms, for the targeted-node dump. */
+interface NodeMatch {
+  file: string;
+  line: number;
+  text: string;
+  score: number;
+}
+
+/**
+ * Walks a file's AST for JSX nodes whose tag / attribute text matches the
+ * issue's terms, emitting their verbatim source text + line number. Matching on
+ * tag names (not raw text) is what fixes the old "img" → role="img"
+ * false-positive: a <svg role="img"> icon has tag "svg", so it no longer
+ * outranks the real <Image> elements in the product thumbnail.
+ */
+function collectMatchingNodes(sf: ts.SourceFile, file: string, terms: string[], out: NodeMatch[]): void {
+  const lowerTerms = terms.map((t) => t.toLowerCase());
+  const matchesTerm = (s: string) => {
+    const l = s.toLowerCase();
+    return lowerTerms.some((t) => l.includes(t) || t.includes(l));
+  };
+
+  const emit = (node: ts.Node, score: number) => {
+    const text = sf.text.slice(node.getStart(sf), node.getEnd()).trim();
+    if (!text || text.length > 2000) return; // skip whole-component-body spans
+    const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+    out.push({ file, line, text, score });
+  };
+
+  function visit(node: ts.Node) {
+    if (ts.isJsxSelfClosingElement(node) || ts.isJsxElement(node)) {
+      // JsxElement nests tagName/attributes under `openingElement`; the
+      // self-closing form flattens them onto the node itself.
+      const opening = ts.isJsxElement(node) ? node.openingElement : node;
+      if (ts.isIdentifier(opening.tagName)) {
+        if (matchesTerm(opening.tagName.text)) {
+          emit(node, 3);
+        } else {
+          for (const a of opening.attributes.properties) {
+            if (ts.isJsxAttribute(a) && ts.isIdentifier(a.name) && matchesTerm(a.name.text)) {
+              emit(node, 2);
+              break;
+            }
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sf);
+}
+
 async function readRepoContext(issueText: string): Promise<string> {
   const files = await gitListFiles(["storefront/src", "medusa/src"]);
   const source = files.filter((f) => /\.(ts|tsx|js|jsx)$/.test(f));
@@ -386,73 +482,69 @@ async function readRepoContext(issueText: string): Promise<string> {
 
   const pathIndex = source.map((f) => `- ${f}`).join("\n");
 
-  // Read every candidate file once (bounded per file), then score.
-  const MAX_FILE_BYTES = 6_000;
-  const contents = new Map<string, string>();
+  // Parse every file once, collecting symbols + term-matching nodes. Parsing
+  // ~337 files takes a couple of seconds — negligible next to the docker-build
+  // dominated run, and always fresh (no committed index to drift).
+  const symbolByFile = new Map<string, SymbolRef[]>();
+  const nodeMatches: NodeMatch[] = [];
   for (const file of source) {
+    let text: string;
     try {
-      const c = readFileSync(file, "utf-8");
-      if (c.length <= MAX_FILE_BYTES) contents.set(file, c);
+      text = readFileSync(file, "utf-8");
     } catch {
-      /* skip unreadable */
+      continue;
     }
+    const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false, scriptKindFor(file));
+    symbolByFile.set(file, collectSymbols(sf));
+    collectMatchingNodes(sf, file, terms, nodeMatches);
   }
 
-  // Rank candidates by: component-file boost (real code lives under
-  // components/templates/models/services/api/jobs/lib, where edits actually
-  // land) + number of distinct issue terms matched. The earlier 1/n rarity
-  // weighting was a bug — a super-rare false-positive term ("img", matching
-  // only two payment icons via role="img") outranked the real target.
+  // Rank files by matching-node density + component-dir boost + path-term
+  // boost. A file with many matching JSX nodes (a real product-image component)
+  // ranks above one with a lone incidental match.
   const CODE_DIR = /\/(components|templates|models|services|api|jobs|scripts|lib)\//;
-  const scored = [...contents.keys()]
-    .map((file) => {
-      const h = contents.get(file)!.toLowerCase();
-      const matchedTerms = terms.filter((t) => h.includes(t)).length;
-      const boost = CODE_DIR.test(file) ? 5 : 0;
-      return { file, score: boost + matchedTerms, matchedTerms };
-    })
-    .filter((s) => s.matchedTerms > 0)
-    .sort((a, b) => b.score - a.score || b.matchedTerms - a.matchedTerms || a.file.localeCompare(b.file));
+  const score = new Map<string, number>();
+  for (const m of nodeMatches) score.set(m.file, (score.get(m.file) ?? 0) + m.score);
+  const rank = (file: string) =>
+    (score.get(file) ?? 0) + (CODE_DIR.test(file) ? 5 : 0) + (terms.some((t) => file.toLowerCase().includes(t)) ? 3 : 0);
+  const relevantFiles = new Set<string>(score.keys());
+  for (const file of source) {
+    if (terms.some((t) => file.toLowerCase().includes(t))) relevantFiles.add(file);
+  }
+  const ranked = [...relevantFiles].sort((a, b) => rank(b) - rank(a) || a.localeCompare(b));
 
-  // Full content for the top-ranked candidates (bounded).
-  const TOP_CONTENT_BYTES = 40_000;
-  let contentBytes = 0;
-  const topContent: string[] = [];
-  for (const s of scored) {
-    const c = contents.get(s.file)!;
-    if (contentBytes + c.length > TOP_CONTENT_BYTES) break;
-    topContent.push(`=== ${s.file} ===\n${c}`);
-    contentBytes += c.length;
+  // Symbol map: declarations from the top-ranked files — navigation aid only.
+  const MAX_SYMBOL_FILES = 20;
+  const symbolLines: string[] = [];
+  for (const file of ranked.slice(0, MAX_SYMBOL_FILES)) {
+    const syms = symbolByFile.get(file) ?? [];
+    if (!syms.length) continue;
+    symbolLines.push(`### ${file}`);
+    for (const s of syms.slice(0, 25)) symbolLines.push(`  L${s.line} ${s.kind} ${s.name}`);
   }
 
-  // Line-numbered grep evidence across EVERY matching file (not just the top
-  // candidates) — cheap and lets the LLM target the right lines even when the
-  // target file ranks low (e.g. thumbnail, which only shares the generic word
-  // "images" with the issue). Bounded by line count, not file count.
-  const grepLines: string[] = [];
-  const MAX_GREP_LINES = 400;
-  for (const s of scored) {
-    if (grepLines.length >= MAX_GREP_LINES) break;
-    const matches = contents
-      .get(s.file)!
-      .split("\n")
-      .map((line, i) => ({ line: line.trim(), no: i + 1 }))
-      .filter(({ line }) => terms.some((t) => line.toLowerCase().includes(t)))
-      .slice(0, 8);
-    if (!matches.length) continue;
-    grepLines.push(`### ${s.file}`);
-    for (const m of matches) grepLines.push(`  ${m.no}: ${m.line}`);
+  // Targeted node dump: the top matching nodes, verbatim, with file + line.
+  const MAX_NODES = 12;
+  nodeMatches.sort((a, b) => b.score - a.score || a.file.localeCompare(b.file) || a.line - b.line);
+  const seen = new Set<string>();
+  const nodeLines: string[] = [];
+  for (const m of nodeMatches) {
+    const key = `${m.file}:${m.line}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    nodeLines.push(`### ${m.file}:${m.line}\n${m.text}`);
+    if (nodeLines.length >= MAX_NODES) break;
   }
 
   return [
     "## File path index (every tracked source file — use an exact path from this list, never invent one):",
     pathIndex,
     "",
-    "## Top candidate files (ranked by relevance to the issue — full content):",
-    topContent.join("\n\n") || "(none matched)",
+    "## Symbol map (declarations in the files most relevant to this issue):",
+    symbolLines.join("\n") || "(none matched)",
     "",
-    "## Grep evidence (line-numbered matches of the issue's terms):",
-    grepLines.join("\n") || "(none)",
+    "## Targeted nodes (verbatim code matching the issue — copy your `search` from one of these exactly):",
+    nodeLines.join("\n\n") || "(none matched)",
   ].join("\n");
 }
 
