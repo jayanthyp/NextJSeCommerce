@@ -267,6 +267,27 @@ export async function gitHasStagedChanges(): Promise<boolean> {
   return r.exitCode !== 0; // --quiet exits 1 when there are differences, 0 when clean
 }
 
+/** Working-tree diff size (tracked files) — used to reject scope-creep. */
+export async function gitDiffSummary(): Promise<{ files: number; lines: number }> {
+  const r = await run("git", ["diff", "--numstat"]);
+  let files = 0;
+  let lines = 0;
+  for (const line of r.stdout.split("\n")) {
+    const p = line.split("\t");
+    if (p.length < 3) continue;
+    const [added = "", removed = ""] = p;
+    if (added === "-") continue;
+    files += 1;
+    lines += (parseInt(added, 10) || 0) + (parseInt(removed, 10) || 0);
+  }
+  return { files, lines };
+}
+
+/** Discard tracked working-tree changes (so a retry starts from a clean tree). */
+export async function gitDiscardChanges(): Promise<void> {
+  await run("git", ["checkout", "--", "."]);
+}
+
 // ---------------------------------------------------------------------------
 // tech-lead wrapper scripts (reused as-is, not reimplemented — see CLAUDE.md
 // and the plan's decision #4)
