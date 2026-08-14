@@ -570,6 +570,7 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
     testResults = { passed: run.exitCode === 0, log: (run.stdout + run.stderr).slice(-8000) };
   } catch (err) {
     testResults = { passed: false, log: err instanceof Error ? err.message : String(err) };
+    console.log(`[qa] docker/seed/E2E failed: ${testResults.log}`);
   } finally {
     await dockerComposeDown();
   }
