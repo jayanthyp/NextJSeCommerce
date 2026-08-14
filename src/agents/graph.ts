@@ -38,6 +38,14 @@ function routeAfterQualityAnalyst(state: AgenticSdlcStateType): "dev_loop" | "te
   return state.testResults.passed ? "tech_lead" : END;
 }
 
+function routeAfterDevLoop(state: AgenticSdlcStateType): "quality_analyst" | typeof END {
+  // Chain straight into QA on success. dev-loop relabels to ready-for-qa via
+  // GITHUB_TOKEN, whose label events do NOT re-trigger this workflow (GitHub's
+  // recursive-trigger guard), so the dev->QA handoff must happen in-process,
+  // not event-driven. On a block (status:blocked) end here for a human.
+  return state.currentLabel === "status:ready-for-qa" ? "quality_analyst" : END;
+}
+
 const builder = new StateGraph(AgenticSdlcState)
   .addNode("ui_designer", uiDesignerNode)
   .addNode("dev_loop", devLoopNode)
@@ -51,7 +59,10 @@ const builder = new StateGraph(AgenticSdlcState)
     [END]: END,
   })
   .addEdge("ui_designer", END)
-  .addEdge("dev_loop", END)
+  .addConditionalEdges("dev_loop", routeAfterDevLoop, {
+    quality_analyst: "quality_analyst",
+    [END]: END,
+  })
   .addConditionalEdges("quality_analyst", routeAfterQualityAnalyst, {
     dev_loop: "dev_loop",
     tech_lead: "tech_lead",
