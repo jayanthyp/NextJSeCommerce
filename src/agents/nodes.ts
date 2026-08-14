@@ -323,6 +323,14 @@ function applyCodeChanges(changes: CodeChange[]): void {
       );
     }
     const newContent = content.replace(change.search, change.replace);
+    // Guard against the model emitting an edit whose "replace" is byte-for-byte
+    // the same as its "search" (a no-op that leaves the tree clean and then
+    // fails at `git commit` with "nothing to commit").
+    if (newContent === content) {
+      throw new Error(
+        `No-op edit in ${change.path}: "replace" is identical to "search", so nothing changed. Make a real edit — apply the actual change the issue asks for.`
+      );
+    }
     writeFileSync(change.path, newContent, "utf-8");
   }
 }
@@ -554,6 +562,11 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
 
     // Reject scope-creep: a broad rewrite instead of a minimal edit.
     const diff = await gitDiffSummary();
+    if (diff.files === 0) {
+      lastError = `No-op edit: the working tree is unchanged after applying the search/replace. Make a real change (e.g. actually add the attribute/line the issue asks for), not an identical copy.`;
+      await gitDiscardChanges();
+      continue;
+    }
     if (diff.files > 2 || diff.lines > 40) {
       lastError = `Scope-creep detected: ${diff.files} file(s) / ${diff.lines} lines changed. Make a MINIMAL edit — modify only the one file that contains the target element, ideally a single line.`;
       await gitDiscardChanges();
