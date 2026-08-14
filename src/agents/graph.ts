@@ -32,10 +32,14 @@ function routeFromEntry(state: AgenticSdlcStateType): "ui_designer" | "dev_loop"
 
 function routeAfterQualityAnalyst(state: AgenticSdlcStateType): "dev_loop" | "tech_lead" | typeof END {
   if (!state.testResults) return END;
-  // On E2E failure, stop and leave the issue blocked for a human — re-routing
-  // to dev_loop just re-implements already-committed code ("nothing to
-  // commit") instead of actually fixing the failure.
-  return state.testResults.passed ? "tech_lead" : END;
+  if (state.testResults.passed) return "tech_lead";
+  // E2E failed. quality-analyst chooses the next hop by how it relabels the
+  // issue: within the dev↔QA round budget it leaves the issue at
+  // status:ready-for-dev (route back through dev_loop, carrying the failure
+  // log in state), and past the budget — or on a CI-red, not-E2E failure — it
+  // relabels status:blocked and we escalate to tech_lead for human-in-the-loop
+  // direction instead of looping forever.
+  return state.currentLabel === "status:ready-for-dev" ? "dev_loop" : "tech_lead";
 }
 
 function routeAfterDevLoop(state: AgenticSdlcStateType): "quality_analyst" | typeof END {
