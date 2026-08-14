@@ -328,20 +328,56 @@ function applyCodeChanges(changes: CodeChange[]): void {
 }
 
 /**
- * Reads a bounded snapshot of the tracked source files so the dev-loop LLM can
- * modify real files with their exact paths + current contents, instead of
- * hallucinating paths (e.g. `apps/storefront/...` for a repo laid out as
- * `storefront/src/...`) and producing an empty/no-op diff.
+ * Words that carry no signal for locating a file, dropped when deriving grep
+ * terms from the issue title/body.
  */
-async function readRepoContext(): Promise<string> {
+const STOPWORDS = new Set([
+  "the", "and", "for", "with", "this", "that", "from", "into", "onto", "your",
+  "you", "are", "was", "were", "add", "adds", "should", "when", "where",
+  "which", "what", "have", "has", "will", "would", "could", "page", "pages",
+  "issue", "able", "will", "not", "all", "any", "but",
+]);
+
+/** Pulls candidate grep terms out of free text, keeping the first ~10 meaningful words. */
+function deriveSearchTerms(issueText: string): string[] {
+  const words = issueText
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+  return [...new Set(words)].slice(0, 10);
+}
+
+/**
+ * Builds the repo context the dev-loop LLM reasons over. Two halves:
+ *
+ * 1. A FULL path index (every tracked source file) — so the LLM can never
+ *    hallucinate a path like `.../product-image/index.tsx` when the real file
+ *    is `.../thumbnail/index.tsx`.
+ * 2. Targeted CONTENT: files whose body matches terms derived from the issue
+ *    (case-insensitive), so the exact source the LLM must search/replace is
+ *    present verbatim — plus a small alphabetical fallback slice in case the
+ *    issue's terms don't obviously map to a file (e.g. backend logic).
+ *
+ * The old alphabetical-first 60KB dump was the bug: it covered only the first
+ * ~57 of 337 files (everything under `storefront/src/app/...`) and never
+ * reached `storefront/src/modules/...`, so the model invented paths.
+ */
+async function readRepoContext(issueText: string): Promise<string> {
   const files = await gitListFiles(["storefront/src", "medusa/src"]);
   const source = files.filter((f) => /\.(ts|tsx|js|jsx)$/.test(f));
-  const parts: string[] = [];
-  let total = 0;
-  const MAX_TOTAL_BYTES = 60_000;
+  const terms = deriveSearchTerms(issueText);
+
+  const pathIndex = source.map((f) => `- ${f}`).join("\n");
+
+  const matched: string[] = [];
+  const others: string[] = [];
+  let matchedBytes = 0;
+  let otherBytes = 0;
+  const MAX_MATCHED_BYTES = 30_000;
+  const MAX_OTHER_BYTES = 15_000;
   const MAX_FILE_BYTES = 6_000;
+
   for (const file of source) {
-    if (total > MAX_TOTAL_BYTES) break;
     let content: string;
     try {
       content = readFileSync(file, "utf-8");
@@ -349,10 +385,28 @@ async function readRepoContext(): Promise<string> {
       continue;
     }
     if (content.length > MAX_FILE_BYTES) continue;
-    parts.push(`=== ${file} ===\n${content}`);
-    total += content.length;
+    const haystack = content.toLowerCase();
+    const isMatch = terms.some((t) => haystack.includes(t));
+    const block = `=== ${file} ===\n${content}`;
+    if (isMatch && matchedBytes + content.length <= MAX_MATCHED_BYTES) {
+      matched.push(block);
+      matchedBytes += content.length;
+    } else if (!isMatch && otherBytes + content.length <= MAX_OTHER_BYTES) {
+      others.push(block);
+      otherBytes += content.length;
+    }
   }
-  return parts.join("\n\n");
+
+  return [
+    "## File path index (every tracked source file — use an exact path from this list, never invent one):",
+    pathIndex,
+    "",
+    "## Files matching the issue's terms (full content):",
+    matched.join("\n\n") || "(none matched — the target may be in the fallback list below)",
+    "",
+    "## Other source files (fallback, partial):",
+    others.join("\n\n"),
+  ].join("\n");
 }
 
 /**
@@ -422,7 +476,7 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
   }
 
   const commentsText = issue.comments.map((c) => `${c.author.login}: ${c.body}`).join("\n\n");
-  const repoContext = await readRepoContext();
+  const repoContext = await readRepoContext(`${issue.title}\n${issue.body}`);
   let attempts = 0;
   let lastError = "";
   let changes: CodeChange[] = [];
@@ -451,6 +505,18 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
       applyCodeChanges(changes);
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
+      // Feed the actual on-disk content of the targeted paths back so the next
+      // attempt's `search` is a verbatim copy, not another hallucinated guess.
+      const real = changes
+        .map((c) => {
+          try {
+            return `=== ${c.path} ===\n${readFileSync(c.path, "utf-8")}`;
+          } catch {
+            return `(path does not exist: ${c.path})`;
+          }
+        })
+        .join("\n\n");
+      lastError += `\n\nActual file content on disk (copy ` + "`search`" + ` verbatim from this):\n${real}`;
       await gitDiscardChanges();
       continue;
     }
