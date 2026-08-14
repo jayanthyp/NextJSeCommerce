@@ -33,6 +33,8 @@ import {
   gitPush,
   gitListFiles,
   gitHasStagedChanges,
+  gitDiffSummary,
+  gitDiscardChanges,
   runTechLeadApprove,
   runTechLeadMerge,
   runTechLeadRollback,
@@ -410,13 +412,13 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
       {
         role: "system",
         content:
-          "You are implementing a GitHub issue for a Medusa v2 + Next.js e-commerce monorepo. Follow existing conventions (Medusa module structure, 'use server' data functions, Playwright/Vitest patterns). Do not scope-creep beyond the issue. Return the exact file paths (relative to repo root, e.g. storefront/src/... or medusa/src/...) and full new file contents for every file you change.\n\nThe repository source files (with current contents) are below — modify EXISTING files using their exact paths, never invent new paths:\n\n" +
+          "You are implementing a GitHub issue by making the SMALLEST possible change to existing code.\n\nRules (non-negotiable):\n1. MINIMAL DIFF — modify only the exact line(s) needed. Adding one attribute (e.g. loading=\"lazy\") should be a single-line change.\n2. RIGHT FILE — locate the single file that actually contains the element the issue targets. If the issue is about an image, find the file with the <img>/<Image> tag and edit THAT file, not its parent wrapper.\n3. NO REFACTORING — do not rename props/imports, do not change data-fetching or component logic, do not reformat, do not touch unrelated files.\n4. PRESERVE every unchanged part verbatim (whitespace, imports, comments).\n\nReturn the full content of ONLY the file(s) you change, with all unchanged parts identical to the source below. The repository source files (current contents) are:\n\n" +
           repoContext,
       },
       {
         role: "user",
         content: lastError
-          ? `Previous attempt failed tests/build with this output:\n${lastError}\n\nFix the code accordingly. Original issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}\n\nComments:\n${commentsText}`
+          ? `Previous attempt was rejected or failed:\n${lastError}\n\nFix the code accordingly. Original issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}\n\nComments:\n${commentsText}`
           : `Issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}\n\nComments:\n${commentsText}`,
       },
     ]);
@@ -424,6 +426,14 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
     changes = result.changes;
     summary = result.summary;
     applyCodeChanges(changes);
+
+    // Reject scope-creep: a broad rewrite instead of a minimal edit.
+    const diff = await gitDiffSummary();
+    if (diff.files > 2 || diff.lines > 40) {
+      lastError = `Scope-creep detected: ${diff.files} file(s) / ${diff.lines} lines changed. Make a MINIMAL edit — modify only the one file that contains the target element, ideally a single line.`;
+      await gitDiscardChanges();
+      continue;
+    }
 
     const testRun = await runDevLoopTests();
     if (testRun.passed) {
