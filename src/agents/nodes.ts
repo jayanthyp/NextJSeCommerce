@@ -329,6 +329,38 @@ async function readRepoContext(): Promise<string> {
   return parts.join("\n\n");
 }
 
+/**
+ * Writes a throwaway local `.env` so the QA node's docker-compose stack has the
+ * env vars it references (the real `.env` is gitignored and absent in CI).
+ * Values are fixed test placeholders — the stack is ephemeral and torn down
+ * after the run, so no real secrets are involved.
+ */
+async function writeLocalEnv(): Promise<void> {
+  const env = [
+    "STORE_DOMAIN=localhost",
+    "API_DOMAIN=localhost",
+    "ACME_EMAIL=dev@localhost",
+    "POSTGRES_USER=medusa",
+    "POSTGRES_PASSWORD=medusa",
+    "POSTGRES_DB=medusa",
+    "REDIS_URL=redis://redis:6379",
+    "MEILI_MASTER_KEY=test-meili-key",
+    "JWT_SECRET=test-jwt-secret",
+    "COOKIE_SECRET=test-cookie-secret",
+    "MEDUSA_WORKER_MODE=shared",
+    "MEDUSA_BACKEND_URL=http://localhost:9000",
+    "STORE_CORS=http://localhost:3000",
+    "ADMIN_CORS=http://localhost:9000",
+    "AUTH_CORS=http://localhost:3000",
+    "NEXT_PUBLIC_MEDUSA_BACKEND_URL=http://localhost:9000",
+    "NEXT_PUBLIC_BASE_URL=http://localhost:3000",
+    "NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=pk_test_placeholder",
+    "REVALIDATE_SECRET=test-revalidate",
+    "",
+  ].join("\n");
+  writeFileSync(".env", env, "utf-8");
+}
+
 export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<AgenticSdlcStateType>> {
   const issue = await ghIssueView(state.issueNumber);
   await ghIssueEdit(state.issueNumber, {
@@ -501,6 +533,7 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
 
   let testResults: { passed: boolean; log: string };
   try {
+    await writeLocalEnv();
     await dockerComposeUp();
     let healthy = false;
     for (let i = 0; i < 24 && !healthy; i++) {
