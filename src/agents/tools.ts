@@ -342,9 +342,13 @@ export async function dockerComposeUp(): Promise<void> {
 }
 
 export async function dockerComposeSeed(): Promise<void> {
+  // Seed the COMPILED script (./src/scripts/seed.js), not `npm run seed` — the
+  // production image ships only the built `.medusa/server` tree, so the `.ts`
+  // source referenced by the `seed` npm script doesn't exist in the container
+  // (mirrors scripts/bootstrap.sh).
   assertOk(
-    await run("docker", ["compose", ...COMPOSE_ARGS, "exec", "-T", "backend", "npm", "run", "seed"]),
-    "docker compose exec backend npm run seed"
+    await run("docker", ["compose", ...COMPOSE_ARGS, "exec", "-T", "backend", "npx", "medusa", "exec", "./src/scripts/seed.js"]),
+    "docker compose exec backend npx medusa exec ./src/scripts/seed.js"
   );
 }
 
