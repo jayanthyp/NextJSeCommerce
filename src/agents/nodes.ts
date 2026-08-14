@@ -50,7 +50,7 @@ import {
   formatQaReport,
 } from "./tools.js";
 
-const MAX_DEV_LOOP_ATTEMPTS = 3;
+const MAX_DEV_LOOP_ATTEMPTS = 5;
 
 /**
  * Single place every node instantiates its LLM from. Provider is chosen by
@@ -353,10 +353,11 @@ function deriveSearchTerms(issueText: string): string[] {
  * 1. A FULL path index (every tracked source file) — so the LLM can never
  *    hallucinate a path like `.../product-image/index.tsx` when the real file
  *    is `.../thumbnail/index.tsx`.
- * 2. Targeted CONTENT: files whose body matches terms derived from the issue
- *    (case-insensitive), so the exact source the LLM must search/replace is
- *    present verbatim — plus a small alphabetical fallback slice in case the
- *    issue's terms don't obviously map to a file (e.g. backend logic).
+ * 2. Deterministically-located candidate files: files whose body matches the
+ *    issue's terms, ranked by relevance (rare terms weigh more than generic
+ *    ones), with FULL content for the top candidates and line-numbered grep
+ *    evidence for the wider set. Locating the file is a search problem, so it
+ *    is solved here with a deterministic scan — not left to the LLM to guess.
  *
  * The old alphabetical-first 60KB dump was the bug: it covered only the first
  * ~57 of 337 files (everything under `storefront/src/app/...`) and never
@@ -369,43 +370,73 @@ async function readRepoContext(issueText: string): Promise<string> {
 
   const pathIndex = source.map((f) => `- ${f}`).join("\n");
 
-  const matched: string[] = [];
-  const others: string[] = [];
-  let matchedBytes = 0;
-  let otherBytes = 0;
-  const MAX_MATCHED_BYTES = 30_000;
-  const MAX_OTHER_BYTES = 15_000;
+  // Read every candidate file once (bounded per file), then score.
   const MAX_FILE_BYTES = 6_000;
-
+  const contents = new Map<string, string>();
   for (const file of source) {
-    let content: string;
     try {
-      content = readFileSync(file, "utf-8");
+      const c = readFileSync(file, "utf-8");
+      if (c.length <= MAX_FILE_BYTES) contents.set(file, c);
     } catch {
-      continue;
+      /* skip unreadable */
     }
-    if (content.length > MAX_FILE_BYTES) continue;
-    const haystack = content.toLowerCase();
-    const isMatch = terms.some((t) => haystack.includes(t));
-    const block = `=== ${file} ===\n${content}`;
-    if (isMatch && matchedBytes + content.length <= MAX_MATCHED_BYTES) {
-      matched.push(block);
-      matchedBytes += content.length;
-    } else if (!isMatch && otherBytes + content.length <= MAX_OTHER_BYTES) {
-      others.push(block);
-      otherBytes += content.length;
-    }
+  }
+
+  // Rank candidates by: component-file boost (real code lives under
+  // components/templates/models/services/api/jobs/lib, where edits actually
+  // land) + number of distinct issue terms matched. The earlier 1/n rarity
+  // weighting was a bug — a super-rare false-positive term ("img", matching
+  // only two payment icons via role="img") outranked the real target.
+  const CODE_DIR = /\/(components|templates|models|services|api|jobs|scripts|lib)\//;
+  const scored = [...contents.keys()]
+    .map((file) => {
+      const h = contents.get(file)!.toLowerCase();
+      const matchedTerms = terms.filter((t) => h.includes(t)).length;
+      const boost = CODE_DIR.test(file) ? 5 : 0;
+      return { file, score: boost + matchedTerms, matchedTerms };
+    })
+    .filter((s) => s.matchedTerms > 0)
+    .sort((a, b) => b.score - a.score || b.matchedTerms - a.matchedTerms || a.file.localeCompare(b.file));
+
+  // Full content for the top-ranked candidates (bounded).
+  const TOP_CONTENT_BYTES = 40_000;
+  let contentBytes = 0;
+  const topContent: string[] = [];
+  for (const s of scored) {
+    const c = contents.get(s.file)!;
+    if (contentBytes + c.length > TOP_CONTENT_BYTES) break;
+    topContent.push(`=== ${s.file} ===\n${c}`);
+    contentBytes += c.length;
+  }
+
+  // Line-numbered grep evidence across EVERY matching file (not just the top
+  // candidates) — cheap and lets the LLM target the right lines even when the
+  // target file ranks low (e.g. thumbnail, which only shares the generic word
+  // "images" with the issue). Bounded by line count, not file count.
+  const grepLines: string[] = [];
+  const MAX_GREP_LINES = 400;
+  for (const s of scored) {
+    if (grepLines.length >= MAX_GREP_LINES) break;
+    const matches = contents
+      .get(s.file)!
+      .split("\n")
+      .map((line, i) => ({ line: line.trim(), no: i + 1 }))
+      .filter(({ line }) => terms.some((t) => line.toLowerCase().includes(t)))
+      .slice(0, 8);
+    if (!matches.length) continue;
+    grepLines.push(`### ${s.file}`);
+    for (const m of matches) grepLines.push(`  ${m.no}: ${m.line}`);
   }
 
   return [
     "## File path index (every tracked source file — use an exact path from this list, never invent one):",
     pathIndex,
     "",
-    "## Files matching the issue's terms (full content):",
-    matched.join("\n\n") || "(none matched — the target may be in the fallback list below)",
+    "## Top candidate files (ranked by relevance to the issue — full content):",
+    topContent.join("\n\n") || "(none matched)",
     "",
-    "## Other source files (fallback, partial):",
-    others.join("\n\n"),
+    "## Grep evidence (line-numbered matches of the issue's terms):",
+    grepLines.join("\n") || "(none)",
   ].join("\n");
 }
 
