@@ -19,7 +19,7 @@ export default async function ProductPreview({
   const pricedProduct = await retrievePricedProductById({
     id: productPreview.id,
     regionId: region.id,
-  }).then((product) => product)
+  })
 
   if (!pricedProduct) {
     return null
@@ -27,7 +27,7 @@ export default async function ProductPreview({
 
   const { cheapestPrice } = getProductPrice({
     product: pricedProduct,
-    region,
+    regionId: region.id,
   })
 
   return (
