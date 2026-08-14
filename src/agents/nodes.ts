@@ -774,6 +774,21 @@ async function unblockGenericWorkflow(state: AgenticSdlcStateType): Promise<Part
   const pr = prs[0];
 
   const lastComment = issue.comments[issue.comments.length - 1]?.body ?? "";
+
+  // A scope-creep block (the dev-loop couldn't stay under the minimal-diff
+  // limit after 3 retries) can't be resolved by giving direction — the code
+  // model already retried and failed. Auto-unblocking here would loop
+  // dev-loop -> blocked -> tech-lead -> ready-for-dev forever. Escalate to a
+  // human instead.
+  if (lastComment.includes("Scope-creep detected")) {
+    await ghIssueComment(
+      state.issueNumber,
+      "🛑 **Escalation:** the dev-loop repeatedly exceeded the minimal-diff limit. This needs a human decision — either the issue scope, or the code-generation approach (model/prompt), must change. I will not auto-unblock it."
+    );
+    await ghIssueEdit(state.issueNumber, { addLabel: "status:blocked-architecture-review", removeLabel: "status:blocked" });
+    return { currentLabel: "status:blocked-architecture-review" };
+  }
+
   const decision = await extractStructured(
     z.object({ canResolve: z.boolean(), direction: z.string() }),
     [
