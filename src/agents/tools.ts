@@ -59,7 +59,11 @@ async function run(
 /** Throws with stderr context if the command failed — for calls where a non-zero exit is always a real error. */
 function assertOk(result: RunResult, context: string): RunResult {
   if (result.exitCode !== 0) {
-    throw new Error(`${context} failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+    // Capture BOTH streams — a command may print the real error to stdout while
+    // npm/CLI notices go to stderr (e.g. `npm run seed` failing with only a
+    // version notice on stderr).
+    const detail = [result.stderr, result.stdout].filter((s) => s && s.trim()).join("\n");
+    throw new Error(`${context} failed (exit ${result.exitCode}):\n${detail}`);
   }
   return result;
 }
