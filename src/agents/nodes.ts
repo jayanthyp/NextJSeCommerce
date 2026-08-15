@@ -927,12 +927,30 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
   const changedFiles = await ghPrFiles(pr.number);
   const specDelta = changedFiles.filter(isE2eSpec).map((p) => p.replace(/^storefront\//, ""));
   const uiChanged = changedFiles.some(isStorefrontUi);
-  const specsToRun = [...new Set([...BASELINE_SPECS, ...specDelta])];
-  console.log(`[qa] PR #${pr.number} changed ${changedFiles.length} file(s); spec delta: [${specDelta.join(", ") || "none"}] → running: [${specsToRun.join(", ")}]`);
+  // Only include baseline specs that actually exist on the checked-out branch:
+  // a PR forked before smoke.spec.ts was added won't have it, and passing a
+  // nonexistent spec path to Playwright would error the whole run.
+  const baselineOnDisk = BASELINE_SPECS.filter((p) => {
+    try {
+      readFileSync(`storefront/${p}`, "utf-8");
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  const specsToRun = [...new Set([...baselineOnDisk, ...specDelta])];
+  console.log(`[qa] PR #${pr.number} changed ${changedFiles.length} file(s); spec delta: [${specDelta.join(", ") || "none"}] → running: [${specsToRun.join(", ") || "none"}]`);
 
   let testResults: { passed: boolean; log: string };
-  console.log("[qa] entering docker compose + E2E path");
-  try {
+  if (specsToRun.length === 0) {
+    // Nothing to run (no baseline on this branch and no PR spec delta). Treat as
+    // green — the coverage gate below still hands back to dev-loop if the PR
+    // changed storefront UI without a spec, and passes through otherwise.
+    testResults = { passed: true, log: "no E2E specs on this branch" };
+    console.log("[qa] no E2E specs to run — skipping docker bring-up");
+  } else {
+    console.log("[qa] entering docker compose + E2E path");
+    try {
     await writeLocalEnv();
     await dockerComposeUp();
     let healthy = false;
@@ -993,6 +1011,7 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
     console.log(`[qa] docker/seed/E2E failed: ${testResults.log}`);
   } finally {
     await dockerComposeDown();
+  }
   }
 
   const report = formatQaReport({
