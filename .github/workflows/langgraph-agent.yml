@@ -98,6 +98,11 @@ jobs:
           LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
           LANGCHAIN_PROJECT: "e-commerce-sdlc"
           LANGCHAIN_ENDPOINT: "https://api.smith.langchain.com"
+
+          # Post-deploy smoke-test targets (production VPS endpoints) — the
+          # storefront + API domains techLeadNode pings before merging.
+          NEXT_PUBLIC_BASE_URL: "https://structuracrafts.store"
+          NEXT_PUBLIC_MEDUSA_BACKEND_URL: "https://api.structuracrafts.store"
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
             echo "♻️ Running stuck-issue recovery (schedule trigger)"
