@@ -49,7 +49,9 @@ const SearchInput = ({
       <input
         type="search"
         value={query}
-        onChange={(e) => refine(e.target.value)}
+        onChange={(e) => {
+          refine(e.target.value)
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" && query) {
             onSubmit(query)
