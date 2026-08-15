@@ -43,37 +43,68 @@ jobs:
         with:
           fetch-depth: 0
 
+      # A `labeled` event fires once per label applied at issue creation (see
+      # the `on.issues` comment above) — only the `status:*` one is routable,
+      # the rest (`bug`, `priority:*`, ...) are pure no-ops in trigger.ts. That
+      # filter used to live only inside trigger.ts, which meant every one of
+      # those no-op runs still paid for `npm ci` x3 + Playwright browser
+      # install (~1-2 CI minutes) before reaching the cheap check. Mirror the
+      # same filter here, before any setup step, so non-status `labeled`
+      # events short-circuit in seconds instead.
+      - name: Check if this event needs the full setup
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "issues" ] && [ "${{ github.event.action }}" = "labeled" ]; then
+            LABEL="${{ github.event.label.name }}"
+            case "$LABEL" in
+              status:*) echo "should_run=true" >> "$GITHUB_OUTPUT" ;;
+              *)
+                echo "[gate] labeled \"$LABEL\" is not a status:* label — nothing to route, skipping setup"
+                echo "should_run=false" >> "$GITHUB_OUTPUT"
+                ;;
+            esac
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Node.js Environment
+        if: steps.gate.outputs.should_run == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
       - name: Install Dependencies
+        if: steps.gate.outputs.should_run == 'true'
         run: npm ci
 
       # devLoopNode runs `npm run test:unit` in both workspaces, so their
       # dependencies must be installed too (root `npm ci` only covers the
       # LangGraph orchestrator project itself).
       - name: Install Storefront Dependencies
+        if: steps.gate.outputs.should_run == 'true'
         run: npm ci
         working-directory: storefront
 
       - name: Install Medusa Dependencies
+        if: steps.gate.outputs.should_run == 'true'
         run: npm ci
         working-directory: medusa
 
       - name: Install Playwright Browsers (for QA Node)
+        if: steps.gate.outputs.should_run == 'true'
         run: npx playwright install --with-deps chromium
 
       # devLoopNode runs `git commit` / `git push`; the runner has no git
       # identity by default, which fails with "Author identity unknown".
       - name: Configure Git Identity
+        if: steps.gate.outputs.should_run == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Execute LangGraph Orchestrator
+        if: steps.gate.outputs.should_run == 'true'
         env:
           # Model Provider — Claude by default, DeepSeek when Anthropic credit
           # is exhausted. To use DeepSeek, set these three secrets together:
