@@ -6,7 +6,7 @@
  * invoked only for reasoning — formatting a spec, generating/fixing code,
  * and the SOLID/VPS-resource audit — never for arbitrary bash scripting.
  */
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import { interrupt } from "@langchain/langgraph";
 import { ChatAnthropic } from "@langchain/anthropic";
@@ -21,6 +21,7 @@ import {
   ghIssueCreate,
   ghPrList,
   ghPrDiff,
+  ghPrFiles,
   ghPrChecks,
   ghPrCreate,
   ghPrComment,
@@ -33,7 +34,6 @@ import {
   gitCommit,
   gitPush,
   gitListFiles,
-  gitHasStagedChanges,
   gitDiffSummary,
   gitDiscardChanges,
   runTechLeadApprove,
@@ -323,9 +323,33 @@ async function runDevLoopTests(): Promise<{ passed: boolean; log: string }> {
   return { passed: true, log };
 }
 
-function applyCodeChanges(changes: CodeChange[]): void {
+function applyCodeChanges(changes: CodeChange[], created: string[]): void {
   for (const change of changes) {
-    const content = readFileSync(change.path, "utf-8");
+    const isCreate = change.search.trim() === "";
+    let content: string | null = null;
+    try {
+      content = readFileSync(change.path, "utf-8");
+    } catch {
+      content = null; // file doesn't exist yet
+    }
+
+    if (content === null) {
+      if (!isCreate) {
+        throw new Error(
+          `Cannot edit ${change.path}: the file does not exist. To create a NEW file, leave "search" empty and put the entire file content in "replace".`
+        );
+      }
+      mkdirSync(dirname(change.path), { recursive: true });
+      writeFileSync(change.path, change.replace, "utf-8");
+      created.push(change.path);
+      continue;
+    }
+
+    if (isCreate) {
+      throw new Error(
+        `Cannot create ${change.path}: the file already exists. Use a search/replace edit (non-empty "search") to modify it, not an empty "search".`
+      );
+    }
     if (!content.includes(change.search)) {
       throw new Error(
         `Search text not found in ${change.path}. The LLM's "search" didn't match the file — retry with a verbatim copy.\nSearch: ${change.search.slice(0, 200)}`
@@ -612,6 +636,36 @@ async function readE2eFailureContext(log: string): Promise<string> {
   return parts.join("\n");
 }
 
+/**
+ * Templates the dev-loop LLM reasons over when QA hands back "author a spec":
+ * a representative spec + the page objects/fixtures it imports, plus the list
+ * of existing spec filenames so the model follows the repo's naming/coverage
+ * convention and reuses real testids instead of inventing new ones.
+ */
+async function readSpecTemplateContext(): Promise<string> {
+  const parts: string[] = [];
+  const templates = [
+    "storefront/tests/e2e/frequently-bought-together.spec.ts",
+    "storefront/tests/e2e/pages/product-page.ts",
+    "storefront/tests/e2e/pages/cart-page.ts",
+    "storefront/tests/e2e/fixtures/test-data.ts",
+  ];
+  for (const p of templates) {
+    try {
+      parts.push(`--- ${p} ---\n${readFileSync(p, "utf-8")}`);
+    } catch {
+      // An absent template is non-fatal — the model can still infer structure.
+    }
+  }
+  try {
+    const existing = (await gitListFiles(["storefront/tests/e2e"])).filter((f) => /\.spec\.(ts|tsx)$/.test(f));
+    parts.push(`--- existing spec files (follow this naming, avoid duplicating a test) ---\n${existing.join("\n")}`);
+  } catch {
+    // ignore
+  }
+  return parts.join("\n\n");
+}
+
 export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<AgenticSdlcStateType>> {
   const issue = await ghIssueView(state.issueNumber);
   await ghIssueEdit(state.issueNumber, {
@@ -640,12 +694,37 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
   // QA-failure re-entry: quality-analyst hands back here with the E2E failure
   // log in state (see routeAfterQualityAnalyst). Surface it — plus the failing
   // spec file — so the model targets the actual E2E failure, not just the issue.
+  const authorSpec = state.qaHandoffAuthorSpec === true;
   const qaFailureLog = state.testResults && !state.testResults.passed ? state.testResults.log : null;
-  const qaContext = qaFailureLog ? await readE2eFailureContext(qaFailureLog) : "";
+  let qaContext = "";
+  if (state.qaHandoffMessage) {
+    qaContext = `\n\n## Quality-analyst hand-off:\n${state.qaHandoffMessage}\n`;
+  }
+  if (authorSpec) {
+    qaContext += `\n\n## Author a spec — use these existing specs/page objects as templates (reuse imports, fixtures, and real getByTestId selectors; do NOT invent new testids):\n${await readSpecTemplateContext()}\n`;
+  }
+  if (qaFailureLog && qaFailureLog.trim()) {
+    qaContext += await readE2eFailureContext(qaFailureLog);
+  }
   let attempts = 0;
   let lastError = "";
   let changes: CodeChange[] = [];
   let summary = "";
+  // Paths applyCodeChanges created this attempt, so a discard on retry can
+  // remove them (gitDiscardChanges' `git checkout -- .` only reverts tracked
+  // files, never untracked new files).
+  const created: string[] = [];
+  const discard = async () => {
+    await gitDiscardChanges();
+    for (const p of created) {
+      try {
+        rmSync(p, { force: true });
+      } catch {
+        // already gone
+      }
+    }
+    created.length = 0;
+  };
 
   while (attempts < MAX_DEV_LOOP_ATTEMPTS) {
     attempts += 1;
@@ -667,7 +746,8 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
     changes = result.changes;
     summary = result.summary;
     try {
-      applyCodeChanges(changes);
+      created.length = 0;
+      applyCodeChanges(changes, created);
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
       // Feed the actual on-disk content of the targeted paths back so the next
@@ -682,7 +762,7 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
         })
         .join("\n\n");
       lastError += `\n\nActual file content on disk (copy ` + "`search`" + ` verbatim from this):\n${real}`;
-      await gitDiscardChanges();
+      await discard();
       continue;
     }
 
@@ -690,12 +770,14 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
     const diff = await gitDiffSummary();
     if (diff.files === 0) {
       lastError = `No-op edit: the working tree is unchanged after applying the search/replace. Make a real change (e.g. actually add the attribute/line the issue asks for), not an identical copy.`;
-      await gitDiscardChanges();
+      await discard();
       continue;
     }
-    if (diff.files > 2 || diff.lines > 40) {
-      lastError = `Scope-creep detected: ${diff.files} file(s) / ${diff.lines} lines changed. Make a MINIMAL edit — modify only the one file that contains the target element, ideally a single line.`;
-      await gitDiscardChanges();
+    const maxFiles = authorSpec ? 3 : 2;
+    const maxLines = authorSpec ? 150 : 40;
+    if (diff.files > maxFiles || diff.lines > maxLines) {
+      lastError = `Scope-creep detected: ${diff.files} file(s) / ${diff.lines} lines changed. Make a MINIMAL edit — modify only the one file that contains the target element, ideally a single line.${authorSpec ? " (Authoring a spec allows up to one new test file.)" : ""}`;
+      await discard();
       continue;
     }
 
@@ -748,31 +830,23 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
 // =============================================================================
 
 /**
- * Extracts the e2e spec file basenames (e.g. "reviews", "order-journey") named
- * in a Playwright failure log, so QA can judge whether a failure is plausibly
- * caused by the issue at hand rather than a pre-existing, unrelated break.
+ * Baseline smoke specs that ALWAYS run in QA, regardless of what the PR
+ * changed. These are the "does the app build, render, and sell" floor: a
+ * catastrophic core-UI break must be caught here even when the PR's own change
+ * has no dedicated spec yet. Deliberately tiny (3 tests, <1 min) — the full
+ * regression suite is not part of the autonomous loop anymore; its coverage
+ * belongs on a separate scheduled non-prod run instead.
  */
-function extractFailingSpecs(log: string): string[] {
-  const specs = new Set<string>();
-  for (const m of log.matchAll(/tests\/e2e\/([a-z0-9-]+)\.spec\.(?:ts|tsx)/g)) {
-    if (m[1]) specs.add(m[1]);
-  }
-  return [...specs];
+const BASELINE_SPECS = ["tests/e2e/smoke.spec.ts"];
+
+/** True when a changed path is a storefront E2E spec file. */
+function isE2eSpec(path: string): boolean {
+  return /^storefront\/tests\/e2e\/.*\.spec\.(ts|tsx)$/.test(path);
 }
 
-/**
- * Whether any failing spec is plausibly related to this issue's change. A
- * full-regression E2E run surfaces pre-existing failures unrelated to the PR;
- * handing those back to dev-loop makes it thrash — it reverts its own correct
- * change chasing a test it didn't break. We match the spec *basename* (never
- * the test title — a generic word like "product" appears in almost every
- * commerce test) against the issue's terms; only an actual overlap is treated
- * as "this PR's fault".
- */
-function failureIsRelevant(issueText: string, specs: string[]): boolean {
-  if (!specs.length) return true; // couldn't parse the log — assume relevant rather than mis-attribute
-  const terms = deriveSearchTerms(issueText).map((t) => t.toLowerCase());
-  return specs.some((s) => terms.some((t) => s.includes(t) || t.includes(s)));
+/** True when a changed path is storefront UI source (not a test file). */
+function isStorefrontUi(path: string): boolean {
+  return path.startsWith("storefront/") && !path.startsWith("storefront/tests/");
 }
 
 export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<Partial<AgenticSdlcStateType>> {
@@ -842,27 +916,19 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
   }
 
   // Work on the PR's branch, not main — the E2E stack must run against the code
-  // under test, and the mobile-chromium project addition must land on the PR.
+  // under test.
   await gitCheckout(pr.headRefName);
 
-  // Ensure the mobile-chromium project exists (quality-analyst.md requirement;
-  // confirmed absent from storefront/playwright.config.ts by exploration).
-  const configPath = "storefront/playwright.config.ts";
-  const config = readFileSync(configPath, "utf-8");
-  if (!config.includes("mobile-chromium")) {
-    const patched = config.replace(
-      /projects:\s*\[/,
-      `projects: [\n    {\n      name: "mobile-chromium",\n      use: { ...devices["Pixel 5"] },\n    },`
-    );
-    writeFileSync(configPath, patched, "utf-8");
-    await gitAdd([configPath]);
-    // Only commit when there's actually a staged diff — a prior QA run (or the
-    // dev-loop itself) may already have landed mobile-chromium on the branch.
-    if (await gitHasStagedChanges()) {
-      await gitCommit("Add mobile-chromium Playwright project for QA node");
-      await gitPush(pr.headRefName);
-    }
-  }
+  // Change-scoped QA: run only the baseline smoke specs plus the spec files the
+  // PR itself added or modified. The full regression suite is intentionally not
+  // run here — it surfaces pre-existing failures unrelated to the PR (the exact
+  // thrash root-cause), and its coverage belongs on a separate scheduled
+  // non-prod run instead.
+  const changedFiles = await ghPrFiles(pr.number);
+  const specDelta = changedFiles.filter(isE2eSpec).map((p) => p.replace(/^storefront\//, ""));
+  const uiChanged = changedFiles.some(isStorefrontUi);
+  const specsToRun = [...new Set([...BASELINE_SPECS, ...specDelta])];
+  console.log(`[qa] PR #${pr.number} changed ${changedFiles.length} file(s); spec delta: [${specDelta.join(", ") || "none"}] → running: [${specsToRun.join(", ")}]`);
 
   let testResults: { passed: boolean; log: string };
   console.log("[qa] entering docker compose + E2E path");
@@ -917,7 +983,7 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
     }
     console.log(`[qa] storefront logs (tail):\n${await dockerComposeLogs("storefront", 80)}`);
 
-    const run = await runPlaywright("http://localhost:3000", ["chromium", "mobile-chromium"]);
+    const run = await runPlaywright("http://localhost:3000", ["chromium"], specsToRun);
     // Surface the full E2E output in the workflow log (not just the truncated
     // tail that reaches the issue comment) so a systemic failure is diagnosable.
     console.log(`[qa] Playwright exit ${run.exitCode}:\n${run.stdout}\n${run.stderr}`);
@@ -933,41 +999,57 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
     featureTitle: issue.title,
     passed: testResults.passed,
     prUrl: pr.url,
-    executionSummary: [`Desktop + Mobile Playwright run: ${testResults.passed ? "Passed" : "Failed"}`],
+    executionSummary: [`Change-scoped Playwright run (${specsToRun.join(", ")}): ${testResults.passed ? "Passed" : "Failed"}`],
     acceptanceCriteria: [],
     failureDetails: testResults.passed ? undefined : testResults.log.slice(-2000),
   });
   await ghIssueComment(state.issueNumber, report);
 
   if (testResults.passed) {
+    // Coverage gate: a green baseline doesn't prove the change is tested. If the
+    // PR touches storefront UI but added/modified no spec, hand back to dev-loop
+    // to author one (bounded by MAX_QA_ROUNDS) — a shipped UI change with no
+    // E2E coverage shouldn't silently proceed to tech-lead.
+    if (uiChanged && specDelta.length === 0) {
+      if (qaAttemptCount <= MAX_QA_ROUNDS) {
+        await ghIssueComment(
+          state.issueNumber,
+          `🧪 Baseline smoke passed, but this PR changes storefront UI without adding/modifying an E2E spec. Handing back to dev-loop to author a spec under \`storefront/tests/e2e/\` that exercises the change.`
+        );
+        await ghIssueEdit(state.issueNumber, { addLabel: "status:ready-for-dev", removeLabel: "status:qa-in-progress" });
+        return {
+          currentLabel: "status:ready-for-dev",
+          testResults,
+          prNumber: pr.number,
+          qaAttemptCount,
+          qaHandoffMessage:
+            "Author a missing E2E spec for this UI change: write a NEW Playwright spec file under storefront/tests/e2e/ that exercises the change. To create a new file, set `search` to the empty string and put the ENTIRE file content in `replace`. Reuse the repo's existing fixtures/page-objects and real getByTestId selectors — do NOT invent new testids.",
+          qaHandoffAuthorSpec: true,
+        };
+      }
+      await ghIssueEdit(state.issueNumber, { addLabel: "status:blocked", removeLabel: "status:qa-in-progress" });
+      return { currentLabel: "status:blocked", testResults, prNumber: pr.number, qaAttemptCount };
+    }
     await ghIssueEdit(state.issueNumber, { addLabel: "status:in-review", removeLabel: "status:qa-in-progress" });
     return { currentLabel: "status:in-review", testResults, prNumber: pr.number, qaAttemptCount };
   }
 
-  // A full-regression E2E run can fail on tests unrelated to this PR (a
-  // pre-existing seed-data gap, an unrelated feature). Handing those back to
-  // dev-loop makes it thrash — it reverts its own correct change chasing a
-  // test it didn't break. Only retry via dev-loop when a failing spec is
-  // plausibly related to the issue; otherwise escalate straight to tech-lead
-  // for a human to judge "unrelated failure — merge anyway?".
-  const failingSpecs = extractFailingSpecs(testResults.log);
-  if (!failureIsRelevant(`${issue.title}\n${issue.body}`, failingSpecs)) {
-    await ghIssueComment(
-      state.issueNumber,
-      `⚠️ E2E failed, but the failing test(s) — ${failingSpecs.join(", ") || "none parsed"} — don't match this issue's scope (pre-existing failures unrelated to this PR). Not handing back to dev-loop; escalating to tech-lead to decide whether to merge anyway.`
-    );
-    await ghIssueEdit(state.issueNumber, { addLabel: "status:blocked", removeLabel: "status:qa-in-progress" });
-    return { currentLabel: "status:blocked", testResults, prNumber: pr.number, qaAttemptCount };
-  }
-
+  // E2E failed. With change-scoping every failure is relevant by construction —
+  // baseline specs are core UI, and the delta specs are the PR's own — so hand
+  // straight back to dev-loop (bounded) instead of trying to classify
+  // "unrelated" failures (which the full-regression run forced us to do, and
+  // which caused the earlier thrash).
   if (qaAttemptCount <= MAX_QA_ROUNDS) {
-    // Within the dev↔QA round budget: hand back to dev-loop in-process by
-    // relabeling ready-for-dev (routeAfterQualityAnalyst routes on this),
-    // carrying the E2E failure log in state.testResults for the next pass to
-    // fix. The QA report comment was already posted above, so the failure is
-    // both in state and on the issue (per the "state + comment" decision).
     await ghIssueEdit(state.issueNumber, { addLabel: "status:ready-for-dev", removeLabel: "status:qa-in-progress" });
-    return { currentLabel: "status:ready-for-dev", testResults, prNumber: pr.number, qaAttemptCount };
+    return {
+      currentLabel: "status:ready-for-dev",
+      testResults,
+      prNumber: pr.number,
+      qaAttemptCount,
+      qaHandoffMessage:
+        "A change-scoped E2E test failed. Fix the underlying code (or the test itself if the test is wrong) — the failure log below shows what broke.",
+      qaHandoffAuthorSpec: false,
+    };
   }
 
   // Budget exhausted — escalate to tech-lead (status:blocked) for human-in-the-

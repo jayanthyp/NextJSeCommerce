@@ -11,6 +11,7 @@
  * never for shelling out.
  */
 import { execFile as execFileCb, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCb);
@@ -143,6 +144,14 @@ export async function ghPrDiff(prNumber: number): Promise<string> {
   const r = await run("gh", ["pr", "diff", String(prNumber), "--repo", REPO]);
   assertOk(r, `gh pr diff #${prNumber}`);
   return r.stdout;
+}
+
+/** Lists the file paths a PR changes (added/modified), for change-scoped QA. */
+export async function ghPrFiles(prNumber: number): Promise<string[]> {
+  const r = await run("gh", ["pr", "view", String(prNumber), "--repo", REPO, "--json", "files"]);
+  assertOk(r, `gh pr view #${prNumber} --json files`);
+  const parsed = JSON.parse(r.stdout) as { files: { path: string }[] };
+  return parsed.files.map((f) => f.path);
 }
 
 export interface GhCheck {
@@ -280,6 +289,18 @@ export async function gitDiffSummary(): Promise<{ files: number; lines: number }
     files += 1;
     lines += (parseInt(added, 10) || 0) + (parseInt(removed, 10) || 0);
   }
+  // New (untracked) files — e.g. an E2E spec dev-loop just authored — aren't in
+  // `git diff --numstat`. Count them separately so a file-creation edit isn't
+  // misread as a no-op by devLoopNode's scope guard.
+  const untracked = await run("git", ["ls-files", "--others", "--exclude-standard"]);
+  for (const path of untracked.stdout.split("\n").map((s) => s.trim()).filter(Boolean)) {
+    try {
+      lines += readFileSync(path, "utf-8").split("\n").length;
+      files += 1;
+    } catch {
+      // path is a directory or vanished mid-read — skip
+    }
+  }
   return { files, lines };
 }
 
@@ -338,8 +359,11 @@ export async function runNpmScript(cwd: "medusa" | "storefront", script: string)
 // Playwright (quality-analyst's zero-LLM native execution)
 // ---------------------------------------------------------------------------
 
-export async function runPlaywright(baseUrl: string, projects: string[]): Promise<RunResult> {
+export async function runPlaywright(baseUrl: string, projects: string[], specs?: string[]): Promise<RunResult> {
   const args = ["playwright", "test", ...projects.flatMap((p) => ["--project", p])];
+  // Restrict to an explicit spec list (e.g. the QA node's baseline + change-
+  // scoped delta) when given; otherwise Playwright runs the whole testDir.
+  if (specs && specs.length > 0) args.push(...specs);
   return run("npx", args, {
     cwd: "storefront",
     env: { ...process.env, PLAYWRIGHT_BASE_URL: baseUrl },

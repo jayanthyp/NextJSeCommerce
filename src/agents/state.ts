@@ -87,6 +87,27 @@ export const AgenticSdlcState = Annotation.Root({
     reducer: (_prev, next) => next,
     default: () => 0,
   }),
+
+  /**
+   * QA's hand-back instruction to dev-loop when it hands back for a fix or a
+   * missing spec. Null when QA passed, escalated, or never ran. devLoopNode
+   * injects this into its prompt (alongside the E2E failure log when there is
+   * one) so the model knows *why* it's re-entering.
+   */
+  qaHandoffMessage: Annotation<string | null>({
+    reducer: (_prev, next) => next,
+    default: () => null,
+  }),
+
+  /**
+   * Whether the QA hand-back asks dev-loop to AUTHOR a missing E2E spec (a UI
+   * change shipped with no test) rather than FIX a failing one. Drives
+   * devLoopNode's file-creation path and its relaxed scope guard.
+   */
+  qaHandoffAuthorSpec: Annotation<boolean>({
+    reducer: (_prev, next) => next,
+    default: () => false,
+  }),
 });
 
 export type AgenticSdlcStateType = typeof AgenticSdlcState.State;
