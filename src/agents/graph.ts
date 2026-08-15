@@ -41,12 +41,16 @@ function routeAfterQualityAnalyst(state: AgenticSdlcStateType): "dev_loop" | "te
   return state.currentLabel === "status:ready-for-dev" ? "dev_loop" : "tech_lead";
 }
 
-function routeAfterDevLoop(state: AgenticSdlcStateType): "quality_analyst" | typeof END {
-  // Chain straight into QA on success. dev-loop relabels to ready-for-qa via
-  // GITHUB_TOKEN, whose label events do NOT re-trigger this workflow (GitHub's
-  // recursive-trigger guard), so the dev->QA handoff must happen in-process,
-  // not event-driven. On a block (status:blocked) end here for a human.
-  return state.currentLabel === "status:ready-for-qa" ? "quality_analyst" : END;
+function routeAfterDevLoop(state: AgenticSdlcStateType): "quality_analyst" | "tech_lead" | typeof END {
+  // Chain straight into QA on success. dev-loop relabels via GITHUB_TOKEN,
+  // whose label events do NOT re-trigger this workflow (GitHub's recursive-
+  // trigger guard), so both the dev->QA handoff AND the dev->tech-lead
+  // handoff on a block must happen in-process, not event-driven — otherwise a
+  // status:blocked issue sits idle until the next schedule sweep (up to 30
+  // min) instead of getting tech-lead's review immediately.
+  if (state.currentLabel === "status:ready-for-qa") return "quality_analyst";
+  if (state.currentLabel === "status:blocked") return "tech_lead";
+  return END;
 }
 
 function routeAfterUiDesigner(state: AgenticSdlcStateType): "dev_loop" | typeof END {
@@ -77,6 +81,7 @@ const builder = new StateGraph(AgenticSdlcState)
   })
   .addConditionalEdges("dev_loop", routeAfterDevLoop, {
     quality_analyst: "quality_analyst",
+    tech_lead: "tech_lead",
     [END]: END,
   })
   .addConditionalEdges("quality_analyst", routeAfterQualityAnalyst, {
