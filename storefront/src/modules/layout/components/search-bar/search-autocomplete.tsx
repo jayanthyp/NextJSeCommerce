@@ -8,8 +8,7 @@ import { useParams } from "next/navigation"
 import { getSearchClient, SEARCH_INDEX_NAME } from "@lib/search/client"
 import SearchHit, { ProductHit } from "@modules/search/components/search-hit"
 
-const AutocompleteResults = ({ onNavigate }: { onNavigate: () => void }) => {
-  const { query } = useSearchBox()
+const AutocompleteResults = ({ query, onNavigate }: { query: string; onNavigate: () => void }) => {
   const { items } = useHits<ProductHit>()
 
   if (!query) {
@@ -35,26 +34,35 @@ const AutocompleteResults = ({ onNavigate }: { onNavigate: () => void }) => {
   )
 }
 
-const SearchInput = ({
+export const SearchInput = ({
   onSubmit,
   onNavigate,
 }: {
   onSubmit: (query: string) => void
   onNavigate: () => void
 }) => {
-  const { query, refine } = useSearchBox()
+  const { refine } = useSearchBox()
+
+  // Local state is the source of truth for the rendered value, decoupled from
+  // useSearchBox's `query`: the @meilisearch/instant-meilisearch adapter does
+  // not propagate refine() back into `query`, so a controlled `value={query}`
+  // stays empty as the user types (issue #121 — "search field does not accept
+  // text input"). refine() still drives the search + hits, and the same local
+  // value gates the results below.
+  const [inputValue, setInputValue] = useState("")
 
   return (
     <>
       <input
         type="search"
-        value={query}
+        value={inputValue}
         onChange={(e) => {
+          setInputValue(e.target.value)
           refine(e.target.value)
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && query) {
-            onSubmit(query)
+          if (e.key === "Enter" && inputValue) {
+            onSubmit(inputValue)
           }
         }}
         placeholder="Search products..."
@@ -62,7 +70,7 @@ const SearchInput = ({
         data-testid="search-input"
         autoFocus
       />
-      <AutocompleteResults onNavigate={onNavigate} />
+      <AutocompleteResults query={inputValue} onNavigate={onNavigate} />
     </>
   )
 }
