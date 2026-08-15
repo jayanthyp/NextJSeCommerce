@@ -207,8 +207,21 @@ export async function ghRunRerunFailed(runId: string): Promise<void> {
 }
 
 export async function ghRunWatch(runId: string): Promise<boolean> {
-  const r = await run("gh", ["run", "watch", runId, "--repo", REPO, "--exit-status"]);
-  return r.exitCode === 0;
+  // Poll to a terminal state rather than `gh run watch --exit-status`: a run
+  // that's still queued (pending behind the deploy-vps concurrency group) makes
+  // `gh run watch` exit non-zero immediately, which the deploy path misreads as
+  // a failed deploy and rolls back. Poll `gh run view` until the run completes.
+  for (let i = 0; i < 180; i++) {
+    const r = await run("gh", ["run", "view", runId, "--repo", REPO, "--json", "status,conclusion"]);
+    if (r.exitCode === 0 && r.stdout.trim()) {
+      const parsed = JSON.parse(r.stdout) as { status: string; conclusion: string | null };
+      if (parsed.status === "completed") {
+        return parsed.conclusion === "success";
+      }
+    }
+    await new Promise((res) => setTimeout(res, 10_000));
+  }
+  return false; // ~30 minutes without a terminal state
 }
 
 export async function ghWorkflowRun(workflow: string, ref: string): Promise<void> {
