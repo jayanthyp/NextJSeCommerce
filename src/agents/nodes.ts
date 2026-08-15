@@ -1458,7 +1458,12 @@ async function unblockGenericWorkflow(state: AgenticSdlcStateType): Promise<Part
       addLabel: "status:ready-for-dev",
       removeLabel: "status:blocked",
     });
-    return { currentLabel: "status:ready-for-dev" };
+    // This is the one fully-autonomous hand-back to dev_loop — no human
+    // needed to reach it, unlike ownerReplyWorkflow's blocked-architecture-review
+    // path below (gated on hasOwnerReplySince) — so it's the site that can
+    // actually recur unboundedly within a single run. See handoverCount's
+    // doc comment in state.ts / routeAfterTechLead's circuit breaker in graph.ts.
+    return { currentLabel: "status:ready-for-dev", handoverCount: 1 };
   }
 
   await ghIssueComment(
@@ -1514,4 +1519,27 @@ export async function techLeadNode(state: AgenticSdlcStateType): Promise<Partial
     default:
       return {};
   }
+}
+
+// dev_loop<->tech_lead circuit breaker destination — see handoverCount in
+// state.ts and routeAfterTechLead in graph.ts. Reached only when tech-lead's
+// autonomous unblock has handed the same issue back to dev_loop
+// MAX_HANDOVERS times in one run without it resolving; ends the run the same
+// way every other block does (status:blocked + an explanatory comment)
+// rather than letting LangGraph's own recursion-limit throw an uncaught,
+// GitHub-invisible crash.
+export async function circuitBreakerEscalationNode(state: AgenticSdlcStateType): Promise<Partial<AgenticSdlcStateType>> {
+  console.warn(
+    `[circuit-breaker] issue #${state.issueNumber}: handoverCount=${state.handoverCount} reached the limit — halting the dev_loop<->tech_lead cycle`
+  );
+  await ghIssueComment(
+    state.issueNumber,
+    formatBlockingComment(
+      `dev-loop and tech-lead handed this issue back and forth ${state.handoverCount} times in a single run without resolving it. Halting automatically rather than risking a LangGraph recursion-limit crash.`,
+      ["Provide a more specific fix direction", "Confirm this needs a different approach entirely (e.g. a change outside dev-loop's scope)", "Close/deprioritize this issue"],
+      "🛑 **Circuit Breaker Tripped**"
+    )
+  );
+  await ghIssueEdit(state.issueNumber, { addLabel: "status:blocked", removeLabel: "status:ready-for-dev" });
+  return { currentLabel: "status:blocked" };
 }

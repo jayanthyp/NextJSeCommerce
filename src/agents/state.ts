@@ -108,6 +108,23 @@ export const AgenticSdlcState = Annotation.Root({
     reducer: (_prev, next) => next,
     default: () => false,
   }),
+
+  /**
+   * Circuit breaker for the dev_loop<->tech_lead in-process cycle: dev_loop's
+   * own block (see MAX_DEV_LOOP_ATTEMPTS) hands off to tech_lead, whose
+   * unblockGenericWorkflow can autonomously resolve it and hand back to
+   * dev_loop (routeAfterTechLead) — with no human in that loop, a
+   * stubbornly-unresolvable issue can bounce between the two nodes until
+   * LangGraph's internal step limit throws GraphRecursionError (observed on
+   * issue #129). Unlike the other counters here (replace-reducer, node
+   * computes the absolute value), this one uses an additive reducer and each
+   * hand-back returns a delta of 1 — accumulates across every node in a run
+   * without each site needing to know the running total.
+   */
+  handoverCount: Annotation<number>({
+    reducer: (current: number, update: number) => current + update,
+    default: () => 0,
+  }),
 });
 
 export type AgenticSdlcStateType = typeof AgenticSdlcState.State;

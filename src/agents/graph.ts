@@ -12,7 +12,10 @@
  */
 import { StateGraph, END, MemorySaver } from "@langchain/langgraph";
 import { AgenticSdlcState, type AgenticSdlcStateType } from "./state.js";
-import { uiDesignerNode, devLoopNode, qualityAnalystNode, techLeadNode } from "./nodes.js";
+import { uiDesignerNode, devLoopNode, qualityAnalystNode, techLeadNode, circuitBreakerEscalationNode } from "./nodes.js";
+
+/** dev_loop<->tech_lead in-process hand-back limit — see handoverCount in state.ts. */
+const MAX_HANDOVERS = 3;
 
 /** Label -> entry node, per the five .md files' label state machine. Anything not listed is a transient "someone else is already on it" state this event graph doesn't act on. */
 const LABEL_TO_NODE: Record<string, "ui_designer" | "dev_loop" | "quality_analyst" | "tech_lead"> = {
@@ -63,7 +66,7 @@ function routeAfterUiDesigner(state: AgenticSdlcStateType): "dev_loop" | typeof 
   return state.currentLabel === "status:ready-for-dev" ? "dev_loop" : END;
 }
 
-function routeAfterTechLead(state: AgenticSdlcStateType): "dev_loop" | typeof END {
+function routeAfterTechLead(state: AgenticSdlcStateType): "dev_loop" | "escalation" | typeof END {
   // Same in-process handoff as above: when tech-lead resolves a status:blocked
   // or status:blocked-architecture-review escalation, it relabels straight back
   // to status:ready-for-dev via GITHUB_TOKEN, whose label events don't
@@ -73,7 +76,23 @@ function routeAfterTechLead(state: AgenticSdlcStateType): "dev_loop" | typeof EN
   // permanently rather than just delayed. Every other tech-lead outcome
   // (approve+merge, escalate, deploy-fail) has no further in-graph node, so
   // this is the only currentLabel value worth chaining on.
-  return state.currentLabel === "status:ready-for-dev" ? "dev_loop" : END;
+  if (state.currentLabel !== "status:ready-for-dev") return END;
+
+  // Circuit breaker: this in-process chain, paired with dev_loop's own
+  // block->tech_lead handoff (routeAfterDevLoop), forms a cycle tech-lead's
+  // autonomous unblockGenericWorkflow can re-enter with no human involved —
+  // observed hitting LangGraph's internal recursion limit on issue #129
+  // (GraphRecursionError, an uncaught crash invisible on GitHub). Checked
+  // here rather than unconditionally at the top of the function so a
+  // same-run approve+deploy (which never reaches this branch — see above)
+  // can't be short-circuited by a handoverCount left over from earlier
+  // dev_loop<->tech_lead cycling in the same run.
+  if (state.handoverCount >= MAX_HANDOVERS) {
+    console.warn(`[circuit-breaker] handoverCount=${state.handoverCount} >= ${MAX_HANDOVERS} — routing to escalation instead of dev_loop`);
+    return "escalation";
+  }
+
+  return "dev_loop";
 }
 
 const builder = new StateGraph(AgenticSdlcState)
@@ -81,6 +100,7 @@ const builder = new StateGraph(AgenticSdlcState)
   .addNode("dev_loop", devLoopNode)
   .addNode("quality_analyst", qualityAnalystNode)
   .addNode("tech_lead", techLeadNode)
+  .addNode("escalation", circuitBreakerEscalationNode)
   .addConditionalEdges("__start__", routeFromEntry, {
     ui_designer: "ui_designer",
     dev_loop: "dev_loop",
@@ -104,8 +124,10 @@ const builder = new StateGraph(AgenticSdlcState)
   })
   .addConditionalEdges("tech_lead", routeAfterTechLead, {
     dev_loop: "dev_loop",
+    escalation: "escalation",
     [END]: END,
-  });
+  })
+  .addEdge("escalation", END);
 
 const checkpointer = new MemorySaver();
 
