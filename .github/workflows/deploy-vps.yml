@@ -205,7 +205,13 @@ jobs:
           backend_url="${{ vars.NEXT_PUBLIC_MEDUSA_BACKEND_URL }}"
           backend_url="${backend_url%/}"
           for i in $(seq 1 36); do
-            if curl -fsSL -o /dev/null --max-time 10 "$base_url" 2>/dev/null && \
+            # Probe the storefront's /api/health, NOT its root. The root sits
+            # behind middleware.ts's region redirect (/ -> /au), which issues a
+            # 307 expecting a _medusa_cache_id cookie; a cookie-less curl -L
+            # follows it forever and fails "too many redirects" even when the
+            # server is healthy. /api/* is excluded from that middleware, so
+            # this path returns 200 directly (see storefront/src/app/api/health).
+            if curl -fsSL -o /dev/null --max-time 10 "${base_url}/api/health" 2>/dev/null && \
                curl -fsSL -o /dev/null --max-time 10 "${backend_url}/health" 2>/dev/null; then
               echo "VPS healthy after ~$((i * 10))s"
               exit 0
