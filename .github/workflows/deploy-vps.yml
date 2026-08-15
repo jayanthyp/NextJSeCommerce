@@ -15,7 +15,10 @@ on:
       - "docker-compose.yml"
       - "Caddyfile"
       - "scripts/deploy.sh"
-      - ".github/workflows/deploy-vps.yml"
+      # NOT .github/workflows/deploy-vps.yml: that file only configures the CI
+      # deploy itself, it's never deployed to the VPS, so editing it must not
+      # trigger a deploy (a deploy fired by a workflow edit would then queue
+      # behind — or cancel — the SDLC pipeline's own PR-branch deploy).
   workflow_dispatch: {}
 
 concurrency:
