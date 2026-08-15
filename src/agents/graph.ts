@@ -63,6 +63,19 @@ function routeAfterUiDesigner(state: AgenticSdlcStateType): "dev_loop" | typeof 
   return state.currentLabel === "status:ready-for-dev" ? "dev_loop" : END;
 }
 
+function routeAfterTechLead(state: AgenticSdlcStateType): "dev_loop" | typeof END {
+  // Same in-process handoff as above: when tech-lead resolves a status:blocked
+  // or status:blocked-architecture-review escalation, it relabels straight back
+  // to status:ready-for-dev via GITHUB_TOKEN, whose label events don't
+  // re-trigger the workflow. Without this chain, recover-stuck-issues.ts can't
+  // save it either — its RECOVERY map only covers transient mid-work labels,
+  // not the stable ready-for-dev label — so the issue would be stranded
+  // permanently rather than just delayed. Every other tech-lead outcome
+  // (approve+merge, escalate, deploy-fail) has no further in-graph node, so
+  // this is the only currentLabel value worth chaining on.
+  return state.currentLabel === "status:ready-for-dev" ? "dev_loop" : END;
+}
+
 const builder = new StateGraph(AgenticSdlcState)
   .addNode("ui_designer", uiDesignerNode)
   .addNode("dev_loop", devLoopNode)
@@ -89,7 +102,10 @@ const builder = new StateGraph(AgenticSdlcState)
     tech_lead: "tech_lead",
     [END]: END,
   })
-  .addEdge("tech_lead", END);
+  .addConditionalEdges("tech_lead", routeAfterTechLead, {
+    dev_loop: "dev_loop",
+    [END]: END,
+  });
 
 const checkpointer = new MemorySaver();
 
