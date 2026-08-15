@@ -26,9 +26,11 @@ import {
   ghPrCreate,
   ghPrComment,
   ghPrReviewComment,
-  ghRunListLatestId,
   ghRunWatch,
   ghWorkflowRun,
+  ghRunListLatestIdOrNull,
+  ghRunWaitForNewId,
+  ghWorkflowRunAndGetId,
   gitCheckout,
   gitAdd,
   gitCommit,
@@ -1225,8 +1227,7 @@ async function runDeployWorkflow(issueNumber: number, prNumber: number, headRefN
 
   if (!touchesInfra) {
     // Pre-merge fast path
-    await ghWorkflowRun("deploy-vps.yml", headRefName);
-    const runId = await ghRunListLatestId("deploy-vps.yml", headRefName);
+    const runId = await ghWorkflowRunAndGetId("deploy-vps.yml", headRefName);
     const deployOk = await ghRunWatch(runId);
     if (!deployOk || !(await smokeTest())) {
       await ghWorkflowRun("deploy-vps.yml", "main"); // restore known-good
@@ -1242,8 +1243,9 @@ async function runDeployWorkflow(issueNumber: number, prNumber: number, headRefN
   }
 
   // Post-merge path — infra-sensitive PR, merge first so `git pull --ff-only` on the VPS picks it up.
+  const beforeId = await ghRunListLatestIdOrNull("deploy-vps.yml", "main");
   await runTechLeadMerge(prNumber);
-  const runId = await ghRunListLatestId("deploy-vps.yml", "main");
+  const runId = await ghRunWaitForNewId("deploy-vps.yml", "main", beforeId);
   const deployOk = await ghRunWatch(runId);
   if (!deployOk || !(await smokeTest())) {
     const mergeSha = process.env.GITHUB_SHA ?? "";

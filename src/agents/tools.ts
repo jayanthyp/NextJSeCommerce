@@ -228,33 +228,54 @@ export async function ghWorkflowRun(workflow: string, ref: string): Promise<void
   assertOk(await run("gh", ["workflow", "run", workflow, "--repo", REPO, "--ref", ref]), `gh workflow run ${workflow}`);
 }
 
-export async function ghRunListLatestId(workflow: string, branch: string): Promise<string> {
-  // A freshly-dispatched workflow (`gh workflow run`) isn't immediately visible
-  // to `gh run list` — GitHub indexes it a beat later. Poll briefly instead of
-  // failing the whole deploy on that race (observed: dispatch at T, list at T
-  // returned "no runs found" even though the run existed at T).
+export async function ghRunListLatestIdOrNull(workflow: string, branch: string): Promise<string | null> {
+  const r = await run("gh", [
+    "run",
+    "list",
+    "--repo",
+    REPO,
+    `--workflow=${workflow}`,
+    "--branch",
+    branch,
+    "-L",
+    "1",
+    "--json",
+    "databaseId",
+  ]);
+  if (r.exitCode === 0 && r.stdout.trim()) {
+    const rows = JSON.parse(r.stdout) as { databaseId: number }[];
+    const first = rows[0];
+    if (first) return String(first.databaseId);
+  }
+  return null;
+}
+
+/**
+ * Wait for a run whose id differs from `beforeId` to appear on `branch`.
+ *
+ * A freshly-dispatched `gh workflow run` (and likewise a push-triggered run
+ * from `gh pr merge`) isn't immediately indexed by `gh run list`; for a beat it
+ * still returns the *previous* run on that ref. Taking that stale id and
+ * handing it to `ghRunWatch` is a real failure: the previous run is already
+ * terminal (often "cancelled"), so the watch reports "failed" instantly and the
+ * deploy path dispatches a rollback that then cancels the genuine queued run.
+ * Diffing against `beforeId` (the latest id *before* the action) means we only
+ * ever return a run that did not exist yet.
+ */
+export async function ghRunWaitForNewId(workflow: string, branch: string, beforeId: string | null): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt++) {
-    const r = await run("gh", [
-      "run",
-      "list",
-      "--repo",
-      REPO,
-      `--workflow=${workflow}`,
-      "--branch",
-      branch,
-      "-L",
-      "1",
-      "--json",
-      "databaseId",
-    ]);
-    if (r.exitCode === 0 && r.stdout.trim()) {
-      const rows = JSON.parse(r.stdout) as { databaseId: number }[];
-      const first = rows[0];
-      if (first) return String(first.databaseId);
-    }
+    const id = await ghRunListLatestIdOrNull(workflow, branch);
+    if (id && id !== beforeId) return id;
     await new Promise((res) => setTimeout(res, 3000));
   }
-  throw new Error(`No runs found for workflow ${workflow} on branch ${branch} after ~60s`);
+  throw new Error(`No new run for workflow ${workflow} on branch ${branch} after ~60s`);
+}
+
+/** Dispatch `workflow` on `ref` and return the id of the NEW run it creates (never a stale prior one). */
+export async function ghWorkflowRunAndGetId(workflow: string, ref: string): Promise<string> {
+  const beforeId = await ghRunListLatestIdOrNull(workflow, ref);
+  await ghWorkflowRun(workflow, ref);
+  return ghRunWaitForNewId(workflow, ref, beforeId);
 }
 
 // ---------------------------------------------------------------------------
