@@ -284,7 +284,13 @@ export async function ghWorkflowRunAndGetId(workflow: string, ref: string): Prom
 
 export async function gitCheckout(branch: string, opts: { create?: boolean; startPoint?: string } = {}): Promise<void> {
   const args = ["checkout"];
-  if (opts.create) args.push("-b");
+  // -B (create-or-reset), not -b: on a genuinely fresh runner workspace a
+  // same-named local branch can only exist from earlier in this same process
+  // (e.g. a node revisited via an in-process graph chain), never from a prior
+  // run — so there's nothing worth preserving to justify -b's hard failure.
+  // This is a local branch-pointer reset, not the remote-history-rewriting
+  // kind of force this file's "never --force" rule is about (that's git push).
+  if (opts.create) args.push("-B");
   args.push(branch);
   if (opts.startPoint) args.push(opts.startPoint);
   assertOk(await run("git", args), `git checkout ${branch}`);
