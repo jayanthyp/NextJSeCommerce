@@ -216,24 +216,32 @@ export async function ghWorkflowRun(workflow: string, ref: string): Promise<void
 }
 
 export async function ghRunListLatestId(workflow: string, branch: string): Promise<string> {
-  const r = await run("gh", [
-    "run",
-    "list",
-    "--repo",
-    REPO,
-    `--workflow=${workflow}`,
-    "--branch",
-    branch,
-    "-L",
-    "1",
-    "--json",
-    "databaseId",
-  ]);
-  assertOk(r, `gh run list --workflow=${workflow}`);
-  const rows = JSON.parse(r.stdout) as { databaseId: number }[];
-  const first = rows[0];
-  if (!first) throw new Error(`No runs found for workflow ${workflow} on branch ${branch}`);
-  return String(first.databaseId);
+  // A freshly-dispatched workflow (`gh workflow run`) isn't immediately visible
+  // to `gh run list` — GitHub indexes it a beat later. Poll briefly instead of
+  // failing the whole deploy on that race (observed: dispatch at T, list at T
+  // returned "no runs found" even though the run existed at T).
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const r = await run("gh", [
+      "run",
+      "list",
+      "--repo",
+      REPO,
+      `--workflow=${workflow}`,
+      "--branch",
+      branch,
+      "-L",
+      "1",
+      "--json",
+      "databaseId",
+    ]);
+    if (r.exitCode === 0 && r.stdout.trim()) {
+      const rows = JSON.parse(r.stdout) as { databaseId: number }[];
+      const first = rows[0];
+      if (first) return String(first.databaseId);
+    }
+    await new Promise((res) => setTimeout(res, 3000));
+  }
+  throw new Error(`No runs found for workflow ${workflow} on branch ${branch} after ~60s`);
 }
 
 // ---------------------------------------------------------------------------
