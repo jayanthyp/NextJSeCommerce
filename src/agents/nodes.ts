@@ -1203,7 +1203,13 @@ async function smokeTest(): Promise<boolean> {
   if (!baseUrl || !backendUrl) return false;
   for (let i = 0; i < 12; i++) {
     try {
-      const [a, b] = await Promise.all([fetch(baseUrl), fetch(`${backendUrl}/health`)]);
+      // Probe /api/health, not the storefront root — the root sits behind
+      // middleware.ts's region redirect (/ -> /au), which a cookie-less fetch
+      // follows forever (fetch follows redirects but doesn't carry the
+      // _medusa_cache_id cookie back), so fetch(baseUrl) would throw "redirect
+      // count exceeded" on a perfectly healthy server. /api/* bypasses that
+      // middleware and returns 200 directly (see storefront/src/app/api/health).
+      const [a, b] = await Promise.all([fetch(`${baseUrl}/api/health`), fetch(`${backendUrl}/health`)]);
       if (a.ok && b.ok) return true;
     } catch {
       // fall through to retry
