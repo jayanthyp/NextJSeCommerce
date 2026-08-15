@@ -54,6 +54,6 @@ export class ProductPage {
     // that the mutation actually completed, instead of a fixed sleep. The
     // round trip goes through the Server Action, the Medusa API, and the
     // Redis-backed event bus, so give it more than the 5s default.
-    await expect(this.addToCartButton).toBeEnabled({ timeout: 15_000 })
+    await expect(this.addToCartButton).toBeEnabled({ timeout: 10_000 })
   }
 }

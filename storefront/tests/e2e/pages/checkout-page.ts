@@ -90,6 +90,6 @@ export class CheckoutPage {
     await placeOrder.click()
     // Order placement runs the whole payment-capture + order-creation
     // workflow server-side; give it more room than the per-step navigations.
-    await this.page.waitForURL(/\/order\/.+\/confirmed/, { timeout: 30_000 })
+    await this.page.waitForURL(/\/order\/.+\/confirmed/, { timeout: 20_000 })
   }
 }

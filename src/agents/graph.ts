@@ -32,13 +32,12 @@ function routeFromEntry(state: AgenticSdlcStateType): "ui_designer" | "dev_loop"
 
 function routeAfterQualityAnalyst(state: AgenticSdlcStateType): "dev_loop" | "tech_lead" | typeof END {
   if (!state.testResults) return END;
-  if (state.testResults.passed) return "tech_lead";
-  // E2E failed. quality-analyst chooses the next hop by how it relabels the
-  // issue: within the dev↔QA round budget it leaves the issue at
-  // status:ready-for-dev (route back through dev_loop, carrying the failure
-  // log in state), and past the budget — or on a CI-red, not-E2E failure — it
-  // relabels status:blocked and we escalate to tech_lead for human-in-the-loop
-  // direction instead of looping forever.
+  // QA's own relabeling decides the next hop: status:ready-for-dev means "hand
+  // back to dev-loop" — whether to FIX a failing test (testResults.passed=false)
+  // or to AUTHOR a missing spec (testResults.passed=true, baseline green) — and
+  // anything else (status:in-review on pass, status:blocked on escalation) goes
+  // to tech_lead. Routing on the label rather than testResults.passed is what
+  // lets the "author a missing spec" hand-back still reach dev_loop.
   return state.currentLabel === "status:ready-for-dev" ? "dev_loop" : "tech_lead";
 }
 
