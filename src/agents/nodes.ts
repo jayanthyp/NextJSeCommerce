@@ -1200,8 +1200,15 @@ async function techLeadReviewWorkflow(state: AgenticSdlcStateType): Promise<Part
 }
 
 async function smokeTest(): Promise<boolean> {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-  const backendUrl = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL;
+  // SMOKE_* not NEXT_PUBLIC_*: NEXT_PUBLIC_BASE_URL is the storefront's own
+  // build-time variable (see storefront/src/lib/util/env.ts getBaseURL), and
+  // the graph runs dev_loop's `npm run test:unit` as a child of this same
+  // process. If we read NEXT_PUBLIC_* here, the workflow env that sets the
+  // production URL would leak into those unit tests and break anything that
+  // asserts the localhost fallback (sitemap.test.ts, product-jsonld). Give the
+  // smoke check its own namespace so the two consumers can't collide.
+  const baseUrl = process.env.SMOKE_BASE_URL;
+  const backendUrl = process.env.SMOKE_MEDUSA_BACKEND_URL;
   if (!baseUrl || !backendUrl) return false;
   for (let i = 0; i < 12; i++) {
     try {
