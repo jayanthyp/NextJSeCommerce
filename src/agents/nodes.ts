@@ -726,14 +726,24 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
     created.length = 0;
   };
 
+  // The system prompt differs by mode: normal mode implements the issue's code
+  // change; author-spec mode (QA handed back because the change shipped with no
+  // test) must NOT touch the source — its only job is to create a spec that
+  // verifies the already-committed change. Without this, the model re-edits the
+  // source file and reverts the very change it's supposed to test (observed on
+  // #95: dev-loop removed loading="lazy" while authoring its spec).
+  const systemContent = authorSpec
+    ? "You are authoring a MISSING E2E test for a change that is ALREADY committed and correct. Do NOT modify, remove, or revert ANY existing source file — the code change is already in place. Your ONLY task is to create ONE new Playwright spec file under storefront/tests/e2e/ that verifies the change.\n\nFor the new file, provide:\n- `path`: the new file path under storefront/tests/e2e/ (e.g. storefront/tests/e2e/<feature>.spec.ts).\n- `search`: the empty string \"\" (this signals a NEW file).\n- `replace`: the ENTIRE file content.\n\nThe existing specs/page objects (in the hand-off below) are your templates — reuse their imports, fixtures, and real getByTestId selectors; do NOT invent new testids.\n\nThe repository source files (current contents) are below (read-only reference — do NOT edit them):\n\n" +
+      repoContext
+    : "You are implementing a GitHub issue by making the SMALLEST possible code change, expressed as a search/replace edit.\n\nRules (non-negotiable):\n1. MINIMAL DIFF — change only the exact line(s) needed. Adding one attribute (e.g. loading=\"lazy\") is a one-line change.\n2. RIGHT FILE — locate the single file that actually contains the element the issue targets. If the issue is about an image, find the file with the <img>/<Image> tag and edit THAT file, not its parent wrapper.\n3. NO REFACTORING — do not rename props/imports, do not change logic, do not reformat, do not touch unrelated files.\n\nFor each edit, provide:\n- `path`: the exact file path.\n- `search`: the exact existing snippet, copied VERBATIM from the file below (including whitespace/indentation).\n- `replace`: that same snippet with ONLY the minimal change applied.\n\nThe repository source files (current contents) are below:\n\n" +
+      repoContext;
+
   while (attempts < MAX_DEV_LOOP_ATTEMPTS) {
     attempts += 1;
     const result = await extractStructured(CodeChangesSchema, [
       {
         role: "system",
-        content:
-          "You are implementing a GitHub issue by making the SMALLEST possible code change, expressed as a search/replace edit.\n\nRules (non-negotiable):\n1. MINIMAL DIFF — change only the exact line(s) needed. Adding one attribute (e.g. loading=\"lazy\") is a one-line change.\n2. RIGHT FILE — locate the single file that actually contains the element the issue targets. If the issue is about an image, find the file with the <img>/<Image> tag and edit THAT file, not its parent wrapper.\n3. NO REFACTORING — do not rename props/imports, do not change logic, do not reformat, do not touch unrelated files.\n\nFor each edit, provide:\n- `path`: the exact file path.\n- `search`: the exact existing snippet, copied VERBATIM from the file below (including whitespace/indentation).\n- `replace`: that same snippet with ONLY the minimal change applied.\n\nThe repository source files (current contents) are below:\n\n" +
-          repoContext,
+        content: systemContent,
       },
       {
         role: "user",
