@@ -306,6 +306,14 @@ const CodeChangesSchema = z.object({
     )
     .min(1),
   summary: z.string().describe("One-paragraph summary of what changed and why, for the PR body"),
+  // Bug fixes only (the reproduce-first gate). Naming the mechanism BEFORE
+  // writing the fix is what prevents a no-op "fix" that reformats a line
+  // without touching the actual cause (issue #121 / PR #120). Empty for
+  // non-bug issues.
+  rootCause: z
+    .string()
+    .optional()
+    .describe("Bug fixes only: one sentence naming the root cause the fix addresses (e.g. \"the controlled input's `value` never updates because `onChange` does not set local state\"). Leave empty for non-bug issues."),
 });
 
 async function runDevLoopTests(): Promise<{ passed: boolean; log: string }> {
@@ -668,6 +676,13 @@ async function readSpecTemplateContext(): Promise<string> {
   return parts.join("\n\n");
 }
 
+const TEST_FILE_RE = /\.(test|spec)\.(ts|tsx)$/;
+
+/** True when the issue is a bug — the reproduce-first gate applies, unlike a feature. */
+function isBugIssue(issue: { labels: { name: string }[]; title: string }): boolean {
+  return issue.labels.some((l) => l.name === "bug") || /^bug\s*:/i.test(issue.title);
+}
+
 export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<AgenticSdlcStateType>> {
   const issue = await ghIssueView(state.issueNumber);
   await ghIssueEdit(state.issueNumber, {
@@ -697,6 +712,7 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
   // log in state (see routeAfterQualityAnalyst). Surface it — plus the failing
   // spec file — so the model targets the actual E2E failure, not just the issue.
   const authorSpec = state.qaHandoffAuthorSpec === true;
+  const isBug = !authorSpec && isBugIssue(issue);
   const qaFailureLog = state.testResults && !state.testResults.passed ? state.testResults.log : null;
   let qaContext = "";
   if (state.qaHandoffMessage) {
@@ -740,12 +756,30 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
     : "You are implementing a GitHub issue by making the SMALLEST possible code change, expressed as a search/replace edit.\n\nRules (non-negotiable):\n1. MINIMAL DIFF — change only the exact line(s) needed. Adding one attribute (e.g. loading=\"lazy\") is a one-line change.\n2. RIGHT FILE — locate the single file that actually contains the element the issue targets. If the issue is about an image, find the file with the <img>/<Image> tag and edit THAT file, not its parent wrapper.\n3. NO REFACTORING — do not rename props/imports, do not change logic, do not reformat, do not touch unrelated files.\n\nFor each edit, provide:\n- `path`: the exact file path.\n- `search`: the exact existing snippet, copied VERBATIM from the file below (including whitespace/indentation).\n- `replace`: that same snippet with ONLY the minimal change applied.\n\nThe repository source files (current contents) are below:\n\n" +
       repoContext;
 
+  // Reproduce-first instructions for bug issues — the gate that catches a
+  // "fix" which is a no-op (or which the unit suite can't see) by demanding a
+  // root cause AND a test that FAILS on the current code before any code is
+  // changed. Appended outside the ternary so the author-spec and non-bug paths
+  // stay untouched. For storefront component bugs the test must use real
+  // interaction (`userEvent.type`/`click`) — not Playwright `fill()`, which
+  // sets the value programmatically and gives a false PASS on a non-editable
+  // input (the exact gap that let PR #120 ship).
+  const bugInstruction = isBug
+    ? `
+
+BUG-FIX REQUIREMENTS (this is a bug):
+4. ROOT CAUSE FIRST — set \`rootCause\` to the actual mechanism behind the symptom (e.g. "the controlled input's \`value\` never changes because \`onChange\` does not update local state", "the field is overlaid by a higher z-index sibling that intercepts pointer events"). Do not guess a fix before you can name the cause.
+5. REPRODUCTION TEST — include a change that ADDS or UPDATES a unit test (a \`*.test.tsx\` under \`storefront/src/\` or \`*.test.ts\`/\`*.spec.ts\` under \`medusa/src/\`) which reproduces the bug using REAL user interaction: \`userEvent.type\`, \`userEvent.click\`, or \`fireEvent\` with a real \`focus\` — never a programmatic value set like Playwright \`fill()\`. The test MUST fail on the current (unfixed) code, and your code change must make it pass. Place a storefront test next to the component (e.g. \`<component>/index.test.tsx\`) importing \`@testing-library/react\`, \`@testing-library/user-event\`, and \`@testing-library/jest-dom\`.`
+    : "";
+
+  const effectiveSystem = isBug ? systemContent + bugInstruction : systemContent;
+
   while (attempts < MAX_DEV_LOOP_ATTEMPTS) {
     attempts += 1;
     const result = await extractStructured(CodeChangesSchema, [
       {
         role: "system",
-        content: systemContent,
+        content: effectiveSystem,
       },
       {
         role: "user",
@@ -757,9 +791,43 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
 
     changes = result.changes;
     summary = result.summary;
+    const rootCause = result.rootCause ?? "";
+    // Split test change(s) from code change(s) so the reproduce-first gate can
+    // apply the test in isolation (proving it FAILS pre-fix).
+    const testChanges = changes.filter((c) => TEST_FILE_RE.test(c.path));
+    const codeChanges = changes.filter((c) => !TEST_FILE_RE.test(c.path));
+
+    // Reproduce-first gate (bug issues only): a bug fix must name the root
+    // cause AND ship a unit test that reproduces the symptom — before any code
+    // is changed. This is the front-line defense against a no-op "fix".
+    if (isBug && (testChanges.length === 0 || !rootCause.trim())) {
+      lastError =
+        `Bug fix is missing ${testChanges.length === 0 ? "a REPRODUCTION TEST" : "a ROOT CAUSE"}. ` +
+        `Provide both: (1) \`rootCause\` naming the mechanism, and (2) a unit test (\`*.test.tsx\` under \`storefront/src/\`, or \`*.test.ts\`/\`*.spec.ts\` under \`medusa/src/\`) that reproduces the symptom and FAILS on the current code.`;
+      await discard();
+      continue;
+    }
+
     try {
       created.length = 0;
-      applyCodeChanges(changes, created);
+      if (isBug) {
+        // Phase 1 — REPRODUCE: apply ONLY the test, run the suite, and expect
+        // FAILURE. A test that passes on the unfixed code does not reproduce
+        // the bug (the false-PASS that let PR #120 ship).
+        applyCodeChanges(testChanges, created);
+        const repro = await runDevLoopTests();
+        if (repro.passed) {
+          lastError =
+            `Reproduction test passed on the CURRENT (unfixed) code — it does not reproduce the bug. Rewrite it so it FAILS on the current code using real interaction (` +
+            "`userEvent.type`/`userEvent.click`, not Playwright `fill()`), and make sure it lives under `src/` with a `.test.ts(x)` name so `npm run test:unit` runs it.";
+          await discard();
+          continue;
+        }
+        // Phase 2 — FIX: apply the code change on top of the reproducing test.
+        applyCodeChanges(codeChanges, created);
+      } else {
+        applyCodeChanges(changes, created);
+      }
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
       // Feed the actual on-disk content of the targeted paths back so the next
@@ -785,10 +853,10 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
       await discard();
       continue;
     }
-    const maxFiles = authorSpec ? 3 : 2;
-    const maxLines = authorSpec ? 150 : 40;
+    const maxFiles = authorSpec ? 3 : isBug ? 3 : 2;
+    const maxLines = authorSpec ? 150 : isBug ? 100 : 40;
     if (diff.files > maxFiles || diff.lines > maxLines) {
-      lastError = `Scope-creep detected: ${diff.files} file(s) / ${diff.lines} lines changed. Make a MINIMAL edit — modify only the one file that contains the target element, ideally a single line.${authorSpec ? " (Authoring a spec allows up to one new test file.)" : ""}`;
+      lastError = `Scope-creep detected: ${diff.files} file(s) / ${diff.lines} lines changed. Make a MINIMAL edit — modify only the one file that contains the target element, ideally a single line.${authorSpec ? " (Authoring a spec allows up to one new test file.)" : isBug ? " (A bug fix may add one reproduction test file alongside the code change.)" : ""}`;
       await discard();
       continue;
     }
@@ -1095,9 +1163,46 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
 
 const AuditVerdictSchema = z.object({
   approved: z.boolean(),
+  isSemanticNoOp: z
+    .boolean()
+    .describe("True when the diff is a SEMANTIC no-op — it changes only formatting, whitespace, comments, or rewrites equivalent code without changing behavior. A semantic no-op is always an automatic reject (approved=false)."),
   findings: z.array(z.string()).describe("SOLID / VPS-resource / architecture concerns, empty if approved cleanly"),
   reviewSummary: z.string(),
 });
+
+/**
+ * Deterministic no-op-diff detector — tech-lead's backstop against a PR whose
+ * diff changes no observable behavior (the PR #120 failure mode: a formatting
+ * reflow shipped as a "fix"). Proves the two no-op classes a text diff alone
+ * can: (1) empty, and (2) whitespace-only (every +/- content line is identical
+ * in order once whitespace is stripped). A *semantic* no-op — e.g. #120's
+ * rewrite of `onChange={(e) => refine(...)}` into a `{ ... }` block body with
+ * identical behavior — cannot be proven here; auditPr's isSemanticNoOp check
+ * handles that with the LLM's reasoning.
+ *
+ * `String.fromCharCode(10)` / `ch.trim()` are used instead of `\n` / `/\s/`
+ * so the function carries no regex/escape sequences (keeps this readable and
+ * immune to escape mangling).
+ */
+function detectNoOpDiff(diff: string): { isNoOp: boolean; reason?: string } {
+  const NEWLINE = String.fromCharCode(10);
+  const added: string[] = [];
+  const removed: string[] = [];
+  for (const raw of diff.split(NEWLINE)) {
+    if (raw.startsWith("+") && !raw.startsWith("+++")) added.push(raw.slice(1));
+    else if (raw.startsWith("-") && !raw.startsWith("---")) removed.push(raw.slice(1));
+  }
+  if (added.length === 0 && removed.length === 0) {
+    return { isNoOp: true, reason: "the diff is empty (no added or removed lines)" };
+  }
+  const strip = (s: string) => s.split("").filter((ch) => ch.trim() !== "").join("");
+  const a = added.map(strip).join("");
+  const r = removed.map(strip).join("");
+  if (a === r) {
+    return { isNoOp: true, reason: "the only differences are whitespace/line-breaks — no code content changed" };
+  }
+  return { isNoOp: false };
+}
 
 async function auditPr(diff: string): Promise<z.infer<typeof AuditVerdictSchema>> {
   return extractStructured(AuditVerdictSchema, [
@@ -1109,6 +1214,7 @@ async function auditPr(diff: string): Promise<z.infer<typeof AuditVerdictSchema>
         "VPS resource rules (non-negotiable): Postgres query filters must use indexed columns, no unpaginated queries. No unbounded Promise.all, unclosed Redis pub/sub, or dependency-less useEffect. Next.js fetch calls need `next: { revalidate }`; images need `<Image/>` with dimensions.",
         "Any new/changed docker-compose.yml service MUST declare deploy.resources.limits.memory and .cpus — a missing limit is an automatic reject.",
         "redis's --maxmemory-policy is deliberately noeviction — any PR changing that flag or adding a Redis consumer needs explicit justification in the PR body, otherwise flag it.",
+        "Semantic no-op detection: if the diff changes no observable behavior — only whitespace, formatting, comments, or an equivalent rewrite of the same logic (e.g. reformatting `onChange={(e) => refine(e.target.value)}` into a `{ ... }` block body) — set isSemanticNoOp=true and approved=false, with a finding `No-op diff: <what was reformatted and why it cannot fix the issue>`. Otherwise set isSemanticNoOp=false.",
       ].join(" "),
     },
     { role: "user", content: diff },
@@ -1146,7 +1252,45 @@ async function techLeadReviewWorkflow(state: AgenticSdlcStateType): Promise<Part
   }
 
   const diff = await ghPrDiff(pr.number);
+
+  // Gate 1a — deterministic no-op pre-filter (zero LLM cost): reject an empty
+  // or whitespace-only diff before the audit even runs.
+  const noOp = detectNoOpDiff(diff);
+  if (noOp.isNoOp) {
+    const comment = formatBlockingComment(
+      `No-op diff rejected: ${noOp.reason}. This change cannot fix the issue because it does not alter behavior.`,
+      ["Push a real code change that alters behavior", "Close the PR if no change is actually needed", "Escalate for a human review of what the fix should be"],
+      "🛑 No-Op Diff Rejected"
+    );
+    await ghPrReviewComment(pr.number, comment);
+    await ghIssueComment(state.issueNumber, comment);
+    await ghIssueEdit(state.issueNumber, {
+      addLabel: "status:blocked-architecture-review",
+      removeLabel: "status:tech-lead-review-in-progress",
+    });
+    return { currentLabel: "status:blocked-architecture-review" };
+  }
+
   const verdict = await auditPr(diff);
+
+  // Gate 1b — semantic no-op (caught by the audit LLM): a diff that changes
+  // formatting/whitespace/comments or rewrites equivalent code without changing
+  // behavior. The deterministic pre-filter above can't prove these; the LLM can
+  // (PR #120's `{ ... }` reflow of an arrow body).
+  if (verdict.isSemanticNoOp) {
+    const comment = formatBlockingComment(
+      "No-op diff: this change does not alter behavior, so it cannot fix the issue.",
+      ["Push a real code change that alters behavior", "Explain why this change is actually behavior-altering", "Escalate for a human review"],
+      "🛑 No-Op Diff Rejected"
+    );
+    await ghPrReviewComment(pr.number, comment);
+    await ghIssueComment(state.issueNumber, comment);
+    await ghIssueEdit(state.issueNumber, {
+      addLabel: "status:blocked-architecture-review",
+      removeLabel: "status:tech-lead-review-in-progress",
+    });
+    return { currentLabel: "status:blocked-architecture-review", architecturalBlockers: verdict.findings };
+  }
 
   if (!verdict.approved) {
     const comment = formatBlockingComment(
