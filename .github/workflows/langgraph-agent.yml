@@ -107,9 +107,13 @@ jobs:
           LANGCHAIN_ENDPOINT: "https://api.smith.langchain.com"
 
           # Post-deploy smoke-test targets (production VPS endpoints) — the
-          # storefront + API domains techLeadNode pings before merging.
-          NEXT_PUBLIC_BASE_URL: "https://structuracrafts.store"
-          NEXT_PUBLIC_MEDUSA_BACKEND_URL: "https://api.structuracrafts.store"
+          # storefront + API domains techLeadNode pings before merging. SMOKE_*
+          # (not NEXT_PUBLIC_*): NEXT_PUBLIC_BASE_URL is the storefront's own
+          # build-time var, and the graph runs dev_loop's unit tests as a child
+          # of this process, so reusing that name leaks the production URL into
+          # those tests and breaks their localhost assertions.
+          SMOKE_BASE_URL: "https://structuracrafts.store"
+          SMOKE_MEDUSA_BACKEND_URL: "https://api.structuracrafts.store"
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
             echo "♻️ Running stuck-issue recovery (schedule trigger)"
