@@ -190,3 +190,25 @@ jobs:
             sync_env_secret GOOGLE_CLIENT_SECRET "$GOOGLE_CLIENT_SECRET"
             sync_env_secret MAILERLITE_API_KEY "$MAILERLITE_API_KEY"
             ./scripts/deploy.sh
+
+      # deploy.sh does `docker compose pull && up -d` and returns as soon as the
+      # containers are scheduled — not when they're actually serving. Without
+      # this wait, a storefront/backend still booting (or mid-restart) answers
+      # 503, which the SDLC pipeline's post-deploy smoke test then reads as a
+      # failed deploy. Poll the live endpoints until both respond.
+      - name: Wait for the VPS to become healthy
+        run: |
+          base_url="${{ vars.NEXT_PUBLIC_BASE_URL }}"
+          backend_url="${{ vars.NEXT_PUBLIC_MEDUSA_BACKEND_URL }}"
+          backend_url="${backend_url%/}"
+          for i in $(seq 1 36); do
+            if curl -fsSL -o /dev/null --max-time 10 "$base_url" 2>/dev/null && \
+               curl -fsSL -o /dev/null --max-time 10 "${backend_url}/health" 2>/dev/null; then
+              echo "VPS healthy after ~$((i * 10))s"
+              exit 0
+            fi
+            echo "waiting for VPS health (attempt $i/36)..."
+            sleep 10
+          done
+          echo "VPS never became healthy within 6 minutes" >&2
+          exit 1
