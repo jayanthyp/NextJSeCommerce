@@ -600,7 +600,7 @@ function updateLocalEnvPublishableKey(key: string): void {
  */
 async function readE2eFailureContext(log: string): Promise<string> {
   const specPaths = [...new Set((log.match(/[a-zA-Z0-9_/\-]+\.spec\.(ts|tsx)/g) ?? []))];
-  const parts: string[] = [`\n\n## Quality-analyst E2E failure (fix this):\n\`\`\`\n${log.slice(-4000)}\n\`\`\``];
+  const parts: string[] = [`\n\n## Quality-analyst E2E failure (fix this):\nThe issue's change is already committed — do NOT remove or revert it. Only make a NEW edit if the failure below is demonstrably caused by your change; otherwise leave the code as-is.\n\`\`\`\n${log.slice(-4000)}\n\`\`\``];
   for (const p of specPaths) {
     const full = p.startsWith("storefront/") ? p : `storefront/${p}`;
     try {
@@ -746,6 +746,34 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
 // =============================================================================
 // 4. Quality Analyst Node — zero-LLM fast path
 // =============================================================================
+
+/**
+ * Extracts the e2e spec file basenames (e.g. "reviews", "order-journey") named
+ * in a Playwright failure log, so QA can judge whether a failure is plausibly
+ * caused by the issue at hand rather than a pre-existing, unrelated break.
+ */
+function extractFailingSpecs(log: string): string[] {
+  const specs = new Set<string>();
+  for (const m of log.matchAll(/tests\/e2e\/([a-z0-9-]+)\.spec\.(?:ts|tsx)/g)) {
+    if (m[1]) specs.add(m[1]);
+  }
+  return [...specs];
+}
+
+/**
+ * Whether any failing spec is plausibly related to this issue's change. A
+ * full-regression E2E run surfaces pre-existing failures unrelated to the PR;
+ * handing those back to dev-loop makes it thrash — it reverts its own correct
+ * change chasing a test it didn't break. We match the spec *basename* (never
+ * the test title — a generic word like "product" appears in almost every
+ * commerce test) against the issue's terms; only an actual overlap is treated
+ * as "this PR's fault".
+ */
+function failureIsRelevant(issueText: string, specs: string[]): boolean {
+  if (!specs.length) return true; // couldn't parse the log — assume relevant rather than mis-attribute
+  const terms = deriveSearchTerms(issueText).map((t) => t.toLowerCase());
+  return specs.some((s) => terms.some((t) => s.includes(t) || t.includes(s)));
+}
 
 export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<Partial<AgenticSdlcStateType>> {
   const issue = await ghIssueView(state.issueNumber);
@@ -914,6 +942,22 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
   if (testResults.passed) {
     await ghIssueEdit(state.issueNumber, { addLabel: "status:in-review", removeLabel: "status:qa-in-progress" });
     return { currentLabel: "status:in-review", testResults, prNumber: pr.number, qaAttemptCount };
+  }
+
+  // A full-regression E2E run can fail on tests unrelated to this PR (a
+  // pre-existing seed-data gap, an unrelated feature). Handing those back to
+  // dev-loop makes it thrash — it reverts its own correct change chasing a
+  // test it didn't break. Only retry via dev-loop when a failing spec is
+  // plausibly related to the issue; otherwise escalate straight to tech-lead
+  // for a human to judge "unrelated failure — merge anyway?".
+  const failingSpecs = extractFailingSpecs(testResults.log);
+  if (!failureIsRelevant(`${issue.title}\n${issue.body}`, failingSpecs)) {
+    await ghIssueComment(
+      state.issueNumber,
+      `⚠️ E2E failed, but the failing test(s) — ${failingSpecs.join(", ") || "none parsed"} — don't match this issue's scope (pre-existing failures unrelated to this PR). Not handing back to dev-loop; escalating to tech-lead to decide whether to merge anyway.`
+    );
+    await ghIssueEdit(state.issueNumber, { addLabel: "status:blocked", removeLabel: "status:qa-in-progress" });
+    return { currentLabel: "status:blocked", testResults, prNumber: pr.number, qaAttemptCount };
   }
 
   if (qaAttemptCount <= MAX_QA_ROUNDS) {
