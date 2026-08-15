@@ -5,6 +5,11 @@ on:
     types: [opened, labeled]
   issue_comment:
     types: [created]
+  schedule:
+    # Stuck-issue recovery: relabel issues orphaned in a transient label and
+    # re-run their node (see scripts/recover-stuck-issues.ts). Off the :00/:30
+    # marks; every 30 minutes.
+    - cron: '7,37 * * * *'
 
 # GITHUB_TOKEN's default permissions can be read-only depending on repo/org
 # settings, which would silently 403 on `gh issue edit`/`gh pr create` inside
@@ -90,11 +95,17 @@ jobs:
           LANGCHAIN_PROJECT: "e-commerce-sdlc"
           LANGCHAIN_ENDPOINT: "https://api.smith.langchain.com"
         run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "♻️ Running stuck-issue recovery (schedule trigger)"
+            npx tsx scripts/recover-stuck-issues.ts
+            exit 0
+          fi
+
           # Extract issue number based on event type
           ISSUE_NUMBER="${{ github.event.issue.number }}"
-          
+
           echo "🚀 Triggering LangGraph for Issue #${ISSUE_NUMBER}..."
-          
+
           # Execute the TypeScript trigger script passing the GitHub event context
           npx tsx scripts/trigger.ts \
             --issue "${ISSUE_NUMBER}" \
