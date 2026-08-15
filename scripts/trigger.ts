@@ -11,7 +11,7 @@
  * --event/--action are accepted for logging only.
  */
 import { graph } from "../src/agents/graph.js";
-import { ghIssueView } from "../src/agents/tools.js";
+import { ghIssueView, ghIssueEdit, ghIssueComment } from "../src/agents/tools.js";
 
 function parseArgs(argv: string[]): { issue: number; event: string; action: string; label?: string } {
   const get = (flag: string) => {
@@ -50,11 +50,58 @@ async function main(): Promise<void> {
   }
 
   console.log(`[trigger] routing on currentLabel=${statusLabel}`);
-  const result = await graph.invoke(
-    { issueNumber: issue, currentLabel: statusLabel },
-    { configurable: { thread_id: String(issue) } }
+  try {
+    const result = await graph.invoke(
+      { issueNumber: issue, currentLabel: statusLabel },
+      { configurable: { thread_id: String(issue) } }
+    );
+    console.log(`[trigger] run complete. Final currentLabel=${result.currentLabel}`);
+  } catch (err) {
+    // An uncaught error here previously just logged to the Actions console —
+    // the issue was left in whatever transient label it was mid-run, with no
+    // signal on GitHub at all. recover-stuck-issues.ts's 45m cron sweep would
+    // eventually retry the same node against the same input, which loops
+    // forever for a genuine bug rather than a transient flake. Escalate to
+    // tech-lead immediately instead: same status:blocked path every other
+    // block already goes through, so tech-lead's existing audit reads the
+    // crash like any other blocking comment and gives real direction.
+    await escalateCrashToTechLead(issue, statusLabel, err);
+    throw err; // still exit non-zero — keep the Actions run red for humans watching it
+  }
+}
+
+async function escalateCrashToTechLead(issue: number, failedLabel: string, err: unknown): Promise<void> {
+  const detail = (err instanceof Error ? err.stack ?? err.message : String(err)).slice(0, 1500);
+  console.error(`[trigger] graph run crashed on issue #${issue} (was in ${failedLabel}):`, err);
+
+  if (failedLabel.startsWith("status:blocked")) {
+    // Already tech-lead-owned (the crash may even be inside tech-lead's own
+    // workflow) — relabeling here would fight tech-lead's own routing and
+    // risks a crash-escalation loop. Just leave a trail for the next pass.
+    await ghIssueComment(issue, `⚠️ **Workflow crash** while processing this issue (already in \`${failedLabel}\`):\n\`\`\`\n${detail}\n\`\`\``);
+    return;
+  }
+
+  await ghIssueComment(
+    issue,
+    `⚠️ **Workflow crash** — the graph run threw an uncaught error while this issue was in \`${failedLabel}\`. Escalating to tech-lead instead of leaving it stuck.\n\`\`\`\n${detail}\n\`\`\``
   );
-  console.log(`[trigger] run complete. Final currentLabel=${result.currentLabel}`);
+  await ghIssueEdit(issue, { addLabel: "status:blocked", removeLabel: failedLabel });
+
+  try {
+    // In-process re-entry, same reason as graph.ts's routeAfterTechLead etc.:
+    // GITHUB_TOKEN's own label edit above won't re-trigger the workflow.
+    await graph.invoke(
+      { issueNumber: issue, currentLabel: "status:blocked" },
+      { configurable: { thread_id: String(issue) } }
+    );
+  } catch (techLeadErr) {
+    console.error(`[trigger] tech-lead crash-escalation review itself failed for issue #${issue}:`, techLeadErr);
+    await ghIssueComment(
+      issue,
+      `🛑 Tech-lead's own crash-escalation review also failed:\n\`\`\`\n${techLeadErr instanceof Error ? techLeadErr.message : String(techLeadErr)}\n\`\`\`\nThis needs a human look.`
+    );
+  }
 }
 
 main().catch((err) => {
