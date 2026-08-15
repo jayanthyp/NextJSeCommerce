@@ -49,6 +49,16 @@ function routeAfterDevLoop(state: AgenticSdlcStateType): "quality_analyst" | typ
   return state.currentLabel === "status:ready-for-qa" ? "quality_analyst" : END;
 }
 
+function routeAfterUiDesigner(state: AgenticSdlcStateType): "dev_loop" | typeof END {
+  // Same in-process handoff as dev->QA above: ui-designer promotes to
+  // status:ready-for-dev via GITHUB_TOKEN, whose label events don't re-trigger
+  // the workflow, so without this chain a UI issue stalls at ready-for-dev
+  // waiting on the external /loop dev-loop poller. Chain into dev_loop in the
+  // same run. On a clarity block (status:blocked-ui-work-need-clarity) end here
+  // for the owner's reply.
+  return state.currentLabel === "status:ready-for-dev" ? "dev_loop" : END;
+}
+
 const builder = new StateGraph(AgenticSdlcState)
   .addNode("ui_designer", uiDesignerNode)
   .addNode("dev_loop", devLoopNode)
@@ -61,7 +71,10 @@ const builder = new StateGraph(AgenticSdlcState)
     tech_lead: "tech_lead",
     [END]: END,
   })
-  .addEdge("ui_designer", END)
+  .addConditionalEdges("ui_designer", routeAfterUiDesigner, {
+    dev_loop: "dev_loop",
+    [END]: END,
+  })
   .addConditionalEdges("dev_loop", routeAfterDevLoop, {
     quality_analyst: "quality_analyst",
     [END]: END,

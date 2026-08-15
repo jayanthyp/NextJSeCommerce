@@ -2,7 +2,14 @@ name: LangGraph Agentic SDLC Trigger
 
 on:
   issues:
-    types: [opened, labeled]
+    # `opened` is deliberately omitted. Creating an issue with labels fires
+    # `opened` PLUS one `labeled` per label (e.g. `bug` + `status:ready-for-ui-work`
+    # -> 3 webhook events -> 3 concurrent graph runs all racing on the same
+    # issue). trigger.ts re-derives routing from the live `status:*` label, and
+    # the status label's own `labeled` event already fires at creation, so
+    # `opened` is a pure duplicate. Non-status `labeled` events (e.g. `bug`) are
+    # ignored inside trigger.ts via --label.
+    types: [labeled]
   issue_comment:
     types: [created]
   schedule:
@@ -119,4 +126,5 @@ jobs:
           npx tsx scripts/trigger.ts \
             --issue "${ISSUE_NUMBER}" \
             --event "${{ github.event_name }}" \
-            --action "${{ github.event.action }}"
+            --action "${{ github.event.action }}" \
+            --label "${{ github.event.label.name }}"

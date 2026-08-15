@@ -13,23 +13,34 @@
 import { graph } from "../src/agents/graph.js";
 import { ghIssueView } from "../src/agents/tools.js";
 
-function parseArgs(argv: string[]): { issue: number; event: string; action: string } {
+function parseArgs(argv: string[]): { issue: number; event: string; action: string; label?: string } {
   const get = (flag: string) => {
     const i = argv.indexOf(flag);
     return i === -1 ? undefined : argv[i + 1];
   };
   const issueRaw = get("--issue");
-  if (!issueRaw) throw new Error("Usage: trigger.ts --issue <n> [--event <name>] [--action <action>]");
+  if (!issueRaw) throw new Error("Usage: trigger.ts --issue <n> [--event <name>] [--action <action>] [--label <name>]");
   return {
     issue: Number(issueRaw),
     event: get("--event") ?? "unknown",
     action: get("--action") ?? "unknown",
+    label: get("--label") ?? undefined,
   };
 }
 
 async function main(): Promise<void> {
-  const { issue, event, action } = parseArgs(process.argv.slice(2));
-  console.log(`[trigger] issue=#${issue} event=${event} action=${action} — fetching live label state`);
+  const { issue, event, action, label } = parseArgs(process.argv.slice(2));
+  console.log(`[trigger] issue=#${issue} event=${event} action=${action} label=${label ?? "(none)"} — fetching live label state`);
+
+  // A `labeled` event fires once per label applied, so creating an issue with
+  // `bug` + `status:ready-for-ui-work` emits two labeled webhooks. Only the
+  // `status:*` label is a routing signal; the others (`bug`, `priority:*`,
+  // etc.) must not spawn a second graph run that races the first. Routing is
+  // still derived from the live labels below, never from this arg.
+  if (event === "issues" && action === "labeled" && label && !label.startsWith("status:")) {
+    console.log(`[trigger] labeled "${label}" is not a status:* label — nothing to route, exiting cleanly`);
+    return;
+  }
 
   const ghIssue = await ghIssueView(issue);
   const statusLabel = ghIssue.labels.map((l) => l.name).find((n) => n.startsWith("status:"));
