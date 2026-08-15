@@ -53,7 +53,7 @@ const WishlistQuickAction = ({
       await removeFromWishlist(previous).catch(() => setItemId(previous))
     } else {
       const res = await addToWishlist(productId).catch(() => null)
-      setItemId((res as any)?.wishlist_item?.id ?? null)
+      setItemId((res as { wishlist_item: { id: string } })?.wishlist_item?.id ?? null)
     }
   }
 
