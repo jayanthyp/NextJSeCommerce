@@ -31,6 +31,7 @@ const WishlistQuickAction = ({
   }, [productId, isLoggedIn])
 
   const filled = isLoggedIn ? !!itemId : local.isWishlisted
+  const isWishlisted = filled
 
   const toggle = async (event: React.MouseEvent) => {
     // The card is wrapped in a LocalizedClientLink — without this the click
