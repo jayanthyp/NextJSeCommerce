@@ -360,7 +360,11 @@ export async function runNpmScript(cwd: "medusa" | "storefront", script: string)
 // ---------------------------------------------------------------------------
 
 export async function runPlaywright(baseUrl: string, projects: string[], specs?: string[]): Promise<RunResult> {
-  const args = ["playwright", "test", ...projects.flatMap((p) => ["--project", p])];
+  // `--project=<name>` (equals form), not `--project <name>`: Playwright's
+  // `--project` flag collects every following non-flag argument, so the space
+  // form swallows the spec paths appended below as extra "project" names and
+  // fails with `Project(s) "tests/e2e/..." not found`.
+  const args = ["playwright", "test", ...projects.flatMap((p) => [`--project=${p}`])];
   // Restrict to an explicit spec list (e.g. the QA node's baseline + change-
   // scoped delta) when given; otherwise Playwright runs the whole testDir.
   if (specs && specs.length > 0) args.push(...specs);
