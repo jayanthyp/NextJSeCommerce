@@ -12,7 +12,6 @@ import WhatsAppButton from "@modules/layout/components/whatsapp-button"
 import Footer from "@modules/layout/templates/footer"
 import Nav from "@modules/layout/templates/nav"
 import FreeShippingPriceNudge from "@modules/shipping/components/free-shipping-price-nudge"
-import WhatsAppButton from "@modules/layout/components/whatsapp-button"
 
 export const metadata: Metadata = {
   metadataBase: new URL(getBaseURL()),
