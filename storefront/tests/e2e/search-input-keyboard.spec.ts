@@ -21,7 +21,7 @@ test.describe("Search input keyboard interaction", () => {
     await page.goto(`/${COUNTRY_CODE}`)
 
     // Open the search UI by clicking the search icon in the header.
-    const searchButton = page.getByTestId("search-button")
+    const searchButton = page.getByTestId("search-toggle-button")
     await searchButton.click()
 
     // The search input should be visible and editable (not disabled/readOnly).
