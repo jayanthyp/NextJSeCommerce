@@ -43,18 +43,24 @@ const SearchInput = ({
   onNavigate: () => void
 }) => {
   const { query, refine } = useSearchBox()
+  const [inputValue, setInputValue] = useState(query)
+
+  useEffect(() => {
+    setInputValue(query)
+  }, [query])
 
   return (
     <>
       <input
         type="search"
-        value={query}
+        value={inputValue}
         onChange={(e) => {
+          setInputValue(e.target.value)
           refine(e.target.value)
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && query) {
-            onSubmit(query)
+          if (e.key === "Enter" && inputValue) {
+            onSubmit(inputValue)
           }
         }}
         placeholder="Search products..."
