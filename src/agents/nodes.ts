@@ -759,35 +759,43 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
   // Reproduce-first instructions for bug issues — the gate that catches a
   // "fix" which is a no-op (or which the unit suite can't see) by demanding a
   // root cause AND a test that FAILS on the current code before any code is
-  // changed. Appended outside the ternary so the author-spec and non-bug paths
-  // stay untouched. For storefront component bugs the test must use real
-  // interaction (`userEvent.type`/`click`) — not Playwright `fill()`, which
-  // sets the value programmatically and gives a false PASS on a non-editable
-  // input (the exact gap that let PR #120 ship).
+  // changed. PREPENDED (not appended after the ~17K-token repo dump): appending
+  // it last buried the requirement and made the model return an empty `changes`
+  // array — the #121 regression.
   const bugInstruction = isBug
-    ? `
+    ? `BUG-FIX REQUIREMENTS (this issue is a bug):
+- ROOT CAUSE FIRST — set \`rootCause\` to the actual mechanism behind the symptom (e.g. a controlled input whose \`value\` never updates, an overlay intercepting pointer events). Name it before writing the fix.
+- REPRODUCTION TEST — the \`changes\` array MUST contain BOTH: (a) a NEW unit test file (\`*.test.tsx\`/\`*.test.ts\`) that reproduces the bug via real interaction (\`userEvent.type\`/\`click\`, never Playwright \`fill()\`), and (b) the minimal code change that makes that test pass. Place the storefront test under \`storefront/src/\` next to the component, importing \`@testing-library/react\`, \`@testing-library/user-event\`, and \`@testing-library/jest-dom\`.
 
-BUG-FIX REQUIREMENTS (this is a bug):
-4. ROOT CAUSE FIRST — set \`rootCause\` to the actual mechanism behind the symptom (e.g. "the controlled input's \`value\` never changes because \`onChange\` does not update local state", "the field is overlaid by a higher z-index sibling that intercepts pointer events"). Do not guess a fix before you can name the cause.
-5. REPRODUCTION TEST — include a change that ADDS or UPDATES a unit test (a \`*.test.tsx\` under \`storefront/src/\` or \`*.test.ts\`/\`*.spec.ts\` under \`medusa/src/\`) which reproduces the bug using REAL user interaction: \`userEvent.type\`, \`userEvent.click\`, or \`fireEvent\` with a real \`focus\` — never a programmatic value set like Playwright \`fill()\`. The test MUST fail on the current (unfixed) code, and your code change must make it pass. Place a storefront test next to the component (e.g. \`<component>/index.test.tsx\`) importing \`@testing-library/react\`, \`@testing-library/user-event\`, and \`@testing-library/jest-dom\`.`
+`
     : "";
 
-  const effectiveSystem = isBug ? systemContent + bugInstruction : systemContent;
+  const effectiveSystem = isBug ? bugInstruction + systemContent : systemContent;
 
   while (attempts < MAX_DEV_LOOP_ATTEMPTS) {
     attempts += 1;
-    const result = await extractStructured(CodeChangesSchema, [
-      {
-        role: "system",
-        content: effectiveSystem,
-      },
-      {
-        role: "user",
-        content: lastError
-          ? `Previous attempt was rejected or failed:\n${lastError}\n\nFix the code accordingly. Original issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}${qaContext}\n\nComments:\n${commentsText}`
-          : `Issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}${qaContext}\n\nComments:\n${commentsText}`,
-      },
-    ]);
+    let result: z.infer<typeof CodeChangesSchema>;
+    try {
+      result = await extractStructured(CodeChangesSchema, [
+        {
+          role: "system",
+          content: effectiveSystem,
+        },
+        {
+          role: "user",
+          content: lastError
+            ? `Previous attempt was rejected or failed:\n${lastError}\n\nFix the code accordingly. Original issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}${qaContext}\n\nComments:\n${commentsText}`
+            : `Issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}${qaContext}\n\nComments:\n${commentsText}`,
+        },
+      ]);
+    } catch (err) {
+      // The LLM failed to emit a valid structured edit (e.g. an empty `changes`
+      // array) even after extractStructured's internal retries. Fall through to
+      // the blocking path instead of throwing — otherwise the whole graph run
+      // crashes and the issue is left orphaned in status:in-progress.
+      lastError = err instanceof Error ? err.message : String(err);
+      break;
+    }
 
     changes = result.changes;
     summary = result.summary;
@@ -871,7 +879,7 @@ BUG-FIX REQUIREMENTS (this is a bug):
 
   if (lastError) {
     const comment = formatBlockingComment(
-      `Could not get tests passing after ${MAX_DEV_LOOP_ATTEMPTS} attempts. Last failure:\n\`\`\`\n${lastError.slice(-2000)}\n\`\`\``,
+      `Could not complete the change after ${attempts} attempt${attempts === 1 ? "" : "s"}. Last failure:\n\`\`\`\n${lastError.slice(-2000)}\n\`\`\``,
       ["Provide a more specific fix direction", "Confirm this is a known flaky test to skip for now", "Close/deprioritize this issue"]
     );
     await ghIssueComment(state.issueNumber, comment);
