@@ -15,10 +15,14 @@ on:
 # settings, which would silently 403 on `gh issue edit`/`gh pr create` inside
 # trigger.ts. Every node except tech-lead's approve/merge/rollback acts under
 # this token (via GH_TOKEN below), so it needs write access to all three.
+# `actions: write` additionally lets tech-lead's deploy step dispatch
+# deploy-vps.yml (`gh workflow run`) — without it that call 403s with
+# "Resource not accessible by integration".
 permissions:
   contents: write
   pull-requests: write
   issues: write
+  actions: write
 
 jobs:
   run-langgraph-agent:
