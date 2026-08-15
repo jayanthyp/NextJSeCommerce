@@ -24,7 +24,11 @@ export class ProductPage {
     // One "product-options" block per variant option (Size, Color, ...) —
     // the storefront gives them all the same testid, so this only asserts
     // the first has rendered rather than requiring a single unique match.
-    await expect(this.container.getByTestId("product-options").first()).toBeVisible()
+    // Default 5000ms timeout was too tight for cold SSR + CI runner load and
+    // caused unrelated specs to time out here rather than at their own
+    // assertions (root-caused on issue #33 after 2 consecutive storefront-e2e
+    // runs failed the same 14 tests across 7 unrelated specs).
+    await expect(this.container.getByTestId("product-options").first()).toBeVisible({ timeout: 15000 })
   }
 
   async getTitle(): Promise<string> {
