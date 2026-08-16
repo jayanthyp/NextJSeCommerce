@@ -47,6 +47,14 @@ export default async function ProductPreview({
           images={product.images}
           size="full"
           isFeatured={isFeatured}
+          hoverAction={
+            isSingleVariant ? (
+              <QuickAddButton
+                product={product}
+                className="hidden small:flex absolute bottom-0 inset-x-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+              />
+            ) : undefined
+          }
           badges={
             showDiscountBadge || isBestseller ? (
               <>

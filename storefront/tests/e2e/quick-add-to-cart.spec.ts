@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test"
 import { ProductPage } from "./pages/product-page"
 import { CartPage } from "./pages/cart-page"
-import { COUNTRY_CODE, PRODUCT_HANDLE } from "./fixtures/test-data"
+import { COUNTRY_CODE, SINGLE_VARIANT_PRODUCT_HANDLE } from "./fixtures/test-data"
 
 /**
  * Quick add-to-cart from the catalog grid (issue #35).
@@ -12,15 +12,17 @@ import { COUNTRY_CODE, PRODUCT_HANDLE } from "./fixtures/test-data"
  * and it must not navigate to the PDP (the card is wrapped in a
  * LocalizedClientLink, so the button calls preventDefault/stopPropagation).
  *
- * The seeded catalog's products are all single-variant (no Size/Color
- * options), so the quick-add button is expected to render on every card.
+ * Every other seeded product has real Size/Color options, so this targets
+ * SINGLE_VARIANT_PRODUCT_HANDLE specifically — the one product in the
+ * catalog with no variant options — rather than PRODUCT_HANDLE (the T-Shirt,
+ * which has 8 variants and correctly never renders a quick-add button).
  */
 test.describe("Quick add-to-cart from catalog grid", () => {
   test("adds a single-variant product to cart without opening the PDP", async ({
     page,
   }) => {
     const productPage = new ProductPage(page)
-    await productPage.goto(COUNTRY_CODE, PRODUCT_HANDLE)
+    await productPage.goto(COUNTRY_CODE, SINGLE_VARIANT_PRODUCT_HANDLE)
     const productTitle = await productPage.getTitle()
 
     // Navigate to the store catalog grid, where ProductPreview cards render.

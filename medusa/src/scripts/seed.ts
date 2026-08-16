@@ -890,6 +890,60 @@ export default async function seedDemoData({ container }: ExecArgs) {
             },
           ],
         },
+        {
+          // The only genuinely single-variant product in this catalog —
+          // every other product above has real Size/Color options. Added
+          // for issue #35's quick-add-to-cart feature, which is
+          // deliberately scoped to single-variant products only: without
+          // this, isSingleVariant (product.variants?.length === 1) is
+          // false for every seeded product and the quick-add button can
+          // never be exercised by an E2E test against this catalog.
+          title: "Medusa Sticker Pack",
+          category_ids: [
+            categoryResult.find((cat) => cat.name === "Merch")!.id,
+          ],
+          description:
+            "A pack of Medusa logo stickers for your laptop, water bottle, or notebook. One size fits all.",
+          handle: "sticker-pack",
+          weight: 50,
+          status: ProductStatus.PUBLISHED,
+          shipping_profile_id: shippingProfile.id,
+          images: [
+            {
+              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/tee-black-front.png",
+            },
+          ],
+          options: [
+            {
+              title: "Title",
+              values: ["Default Title"],
+            },
+          ],
+          variants: [
+            {
+              title: "Default Title",
+              sku: "STICKER-PACK",
+              options: {
+                Title: "Default Title",
+              },
+              prices: [
+                {
+                  amount: 5,
+                  currency_code: "eur",
+                },
+                {
+                  amount: 7,
+                  currency_code: "usd",
+                },
+              ],
+            },
+          ],
+          sales_channels: [
+            {
+              id: defaultSalesChannel[0].id,
+            },
+          ],
+        },
       ],
     },
   });
