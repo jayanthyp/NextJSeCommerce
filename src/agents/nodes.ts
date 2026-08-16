@@ -840,9 +840,17 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
         applyCodeChanges(testChanges, created);
         const repro = await runDevLoopTests();
         if (repro.passed) {
-          lastError =
-            `Reproduction test passed on the CURRENT (unfixed) code — it does not reproduce the bug. Rewrite it so it FAILS on the current code using real interaction (` +
-            "`userEvent.type`/`userEvent.click`, not Playwright `fill()`), and make sure it lives under `src/` with a `.test.ts(x)` name so `npm run test:unit` runs it.";
+          // Layer-aware, like the bugInstruction prompt above: a false-PASS on
+          // a backend/medusa test is almost always "asserting against the
+          // wrong thing" (e.g. UI copy) rather than "needs userEvent" — that
+          // frontend-specific advice was previously given unconditionally
+          // here regardless of which layer the test was in, which repeatedly
+          // steered a backend config bug (#129) back toward a frontend
+          // rewrite even after the model had already produced a backend test.
+          const isBackendTest = testChanges.some((c) => c.path.startsWith("medusa/"));
+          lastError = isBackendTest
+            ? "Reproduction test passed on the CURRENT (unfixed) code — it does not reproduce the bug. Rewrite it so it FAILS on the current code by asserting directly on the actual backend value/behavior the bug affects (e.g. import and check the real config object, service method, or workflow output — not a stand-in that the current bug doesn't touch), and make sure it lives under `medusa/src/` with a `.test.ts`/`.spec.ts` name so `npm run test:unit` runs it."
+            : "Reproduction test passed on the CURRENT (unfixed) code — it does not reproduce the bug. Rewrite it so it FAILS on the current code using real interaction (`userEvent.type`/`userEvent.click`, not Playwright `fill()`), and make sure it lives under `src/` with a `.test.ts(x)` name so `npm run test:unit` runs it.";
           await discard();
           continue;
         }
