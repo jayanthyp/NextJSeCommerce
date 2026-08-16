@@ -33,7 +33,7 @@ test.describe("Quick add-to-cart from catalog grid", () => {
     // and the store grid), so scope to the store grid to avoid a strict-mode
     // violation from matching more than one card.
     const card = page
-      .getByTestId("product-grid")
+      .getByTestId("products-list")
       .getByTestId("product-wrapper")
       .filter({ has: page.getByTestId("product-title").filter({ hasText: productTitle }) })
     await expect(card).toBeVisible()
