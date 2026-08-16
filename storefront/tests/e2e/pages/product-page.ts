@@ -24,7 +24,12 @@ export class ProductPage {
     // One "product-options" block per variant option (Size, Color, ...) —
     // the storefront gives them all the same testid, so this only asserts
     // the first has rendered rather than requiring a single unique match.
-    await expect(this.container.getByTestId("product-options").first()).toBeVisible()
+    // Single-variant products (e.g. the quick-add seed product) have no
+    // variant options, so this assertion is skipped when none are present.
+    const options = this.container.getByTestId("product-options")
+    if ((await options.count()) > 0) {
+      await expect(options.first()).toBeVisible()
+    }
   }
 
   async getTitle(): Promise<string> {
