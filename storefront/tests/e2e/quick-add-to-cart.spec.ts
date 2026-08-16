@@ -38,10 +38,10 @@ test.describe("Quick add-to-cart from catalog grid", () => {
       .filter({ has: page.getByTestId("product-title").filter({ hasText: productTitle }) })
     await expect(card).toBeVisible()
 
-    const quickAdd = card.getByTestId("quick-add-button")
+    const quickAdd = card.getByTestId("quick-add-button").first()
     // The desktop quick-add button is hover-revealed (opacity-0 until the
     // card is hovered), so hover the card before asserting visibility.
-    await card.hover()
+    await card.first().hover()
     await expect(quickAdd).toBeVisible()
 
     // Clicking quick-add must add to cart, not navigate to the PDP.
