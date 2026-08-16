@@ -85,6 +85,12 @@ export default async function ProductPreview({
             className="small:hidden mt-2 w-full"
           />
         )}
+        {isSingleVariant && (
+          <QuickAddButton
+            product={product}
+            className="small:hidden mt-2 w-full"
+          />
+        )}
       </div>
     </LocalizedClientLink>
   )
