@@ -157,7 +157,14 @@ async function extractStructured<S extends z.ZodTypeAny>(
     try {
       return schema.parse(toolCall.args);
     } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
+      // ZodError.message is a raw JSON dump of every issue — fine for logs,
+      // but noisy as a corrective prompt. Reduce it to the issue messages
+      // themselves so the follow-up turn reads as a specific, actionable
+      // complaint (this is what a bug-fix schema's superRefine relies on to
+      // steer the model back onto a missing rootCause/test, instead of the
+      // model re-reading a JSON blob and re-making the same mistake).
+      lastError = err instanceof z.ZodError ? err.issues.map((i) => i.message).join("; ") : err instanceof Error ? err.message : String(err);
+      console.warn(`[extractStructured] attempt ${attempt} validation failed: ${lastError}`);
       history = [
         ...history,
         {
@@ -295,6 +302,9 @@ export async function uiDesignerNode(state: AgenticSdlcStateType): Promise<Parti
 // 3. Dev Loop Node
 // =============================================================================
 
+/** Matches a unit-test file path — shared by the reproduce-first schema check and the test/code split below. */
+const TEST_FILE_RE = /\.(test|spec)\.(ts|tsx)$/;
+
 const CodeChangesSchema = z.object({
   changes: z
     .array(
@@ -315,6 +325,40 @@ const CodeChangesSchema = z.object({
     .optional()
     .describe("Bug fixes only: one sentence naming the root cause the fix addresses (e.g. \"the controlled input's `value` never updates because `onChange` does not set local state\"). Leave empty for non-bug issues."),
 });
+
+/**
+ * Bug-issue variant of CodeChangesSchema that folds the reproduce-first
+ * shape check (rootCause set, a test-file path present) into schema
+ * validation itself via superRefine, instead of devLoopNode checking it
+ * AFTER a successful parse and discarding+restarting from a blank
+ * conversation on failure. A superRefine violation throws the same ZodError
+ * extractStructured already retries on — so a missing test/rootCause now
+ * gets a corrective follow-up appended to the SAME conversation (the model
+ * sees its own prior answer plus the specific complaint) instead of a fresh
+ * cold-start prompt, which is what let issue #129 repeatedly reproduce the
+ * exact same "missing REPRODUCTION TEST" failure across attempts.
+ */
+function codeChangesSchemaFor(isBug: boolean) {
+  if (!isBug) return CodeChangesSchema;
+  return CodeChangesSchema.superRefine((data, ctx) => {
+    if (!data.rootCause || !data.rootCause.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["rootCause"],
+        message:
+          "Bug fixes must set `rootCause`: one sentence naming the actual mechanism behind the symptom, before writing the fix.",
+      });
+    }
+    if (!data.changes.some((c) => TEST_FILE_RE.test(c.path))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["changes"],
+        message:
+          "Bug fixes must include a reproduction test in `changes`: a NEW `*.test.tsx`/`*.test.ts`/`*.spec.ts` file (under `storefront/src/` for a frontend root cause, or `medusa/src/` for a backend/config root cause) that fails on the current code.",
+      });
+    }
+  });
+}
 
 async function runDevLoopTests(): Promise<{ passed: boolean; log: string }> {
   // Unit tests only — the integration suites (test:integration:modules/http)
@@ -682,8 +726,6 @@ async function readSpecTemplateContext(): Promise<string> {
   return parts.join("\n\n");
 }
 
-const TEST_FILE_RE = /\.(test|spec)\.(ts|tsx)$/;
-
 /** True when the issue is a bug — the reproduce-first gate applies, unlike a feature. */
 function isBugIssue(issue: { labels: { name: string }[]; title: string }): boolean {
   return issue.labels.some((l) => l.name === "bug") || /^bug\s*:/i.test(issue.title);
@@ -712,7 +754,19 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
     await gitCheckout(branch, { create: true });
   }
 
-  const commentsText = issue.comments.map((c) => `${c.author.login}: ${c.body}`).join("\n\n");
+  // Keep only the most recent comments verbatim — the full thread grows by a
+  // whole blocking/direction comment on every circuit-breaker cycle (see
+  // issue #129), which was compounding the ~17K-token repo-context prompt
+  // into a regime where DeepSeek's structured tool-calling is documented as
+  // unreliable (see extractStructured's comment above). Older cycles' detail
+  // is superseded by the latest blocking reason and tech-lead direction
+  // anyway, so dropping it is a deliberate token-budget trade, not just a
+  // truncation.
+  const RECENT_COMMENTS_LIMIT = 6;
+  const commentsText = issue.comments
+    .slice(-RECENT_COMMENTS_LIMIT)
+    .map((c) => `${c.author.login}: ${c.body}`)
+    .join("\n\n");
   const repoContext = await readRepoContext(`${issue.title}\n${issue.body}`);
   // QA-failure re-entry: quality-analyst hands back here with the E2E failure
   // log in state (see routeAfterQualityAnalyst). Surface it — plus the failing
@@ -778,11 +832,21 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
 
   const effectiveSystem = isBug ? bugInstruction + systemContent : systemContent;
 
+  // Bug fixes fold the reproduce-first shape check (rootCause + a test-file
+  // path) into the schema itself (see codeChangesSchemaFor) so a violation
+  // is a normal ZodError that extractStructured retries in-conversation —
+  // the model sees its own prior answer plus the specific complaint, rather
+  // than devLoopNode discarding it and starting the next outer attempt from
+  // a blank prompt. The false-PASS check below (test ran, didn't fail) stays
+  // a devLoopNode-level check — it depends on actually running the suite,
+  // which the schema can't do.
+  const schema = codeChangesSchemaFor(isBug);
+
   while (attempts < MAX_DEV_LOOP_ATTEMPTS) {
     attempts += 1;
     let result: z.infer<typeof CodeChangesSchema>;
     try {
-      result = await extractStructured(CodeChangesSchema, [
+      result = await extractStructured(schema, [
         {
           role: "system",
           content: effectiveSystem,
@@ -795,41 +859,26 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
         },
       ]);
     } catch (err) {
-      // The LLM failed to emit a valid structured edit (e.g. an empty `changes`
-      // array) even after extractStructured's internal retries. Fall through to
-      // the blocking path instead of throwing — otherwise the whole graph run
-      // crashes and the issue is left orphaned in status:in-progress.
+      // extractStructured exhausted its own in-conversation retries (e.g. a
+      // persistently empty tool call, or a bug-fix shape violation that
+      // never resolved). Don't give up on the whole devLoopNode run here —
+      // start a fresh outer attempt (up to MAX_DEV_LOOP_ATTEMPTS) with a
+      // clean conversation instead, since a systemic-looking failure in one
+      // conversation doesn't mean the next fresh attempt will fail the same
+      // way (observed: DeepSeek's tool-calling reliability is prompt/context
+      // sensitive, not deterministic).
       lastError = err instanceof Error ? err.message : String(err);
-      break;
+      await discard();
+      continue;
     }
 
     changes = result.changes;
     summary = result.summary;
     const rootCause = result.rootCause ?? "";
-    // Split test change(s) from code change(s) so the reproduce-first gate can
-    // apply the test in isolation (proving it FAILS pre-fix).
+    // Split test change(s) from code change(s) so the false-PASS check below
+    // can apply the test in isolation (proving it FAILS pre-fix).
     const testChanges = changes.filter((c) => TEST_FILE_RE.test(c.path));
     const codeChanges = changes.filter((c) => !TEST_FILE_RE.test(c.path));
-
-    // Reproduce-first gate (bug issues only): a bug fix must name the root
-    // cause AND ship a unit test that reproduces the symptom — before any code
-    // is changed. This is the front-line defense against a no-op "fix".
-    if (isBug && (testChanges.length === 0 || !rootCause.trim())) {
-      lastError =
-        `Bug fix is missing ${testChanges.length === 0 ? "a REPRODUCTION TEST" : "a ROOT CAUSE"}. ` +
-        `Provide both: (1) \`rootCause\` naming the mechanism, and (2) a unit test (\`*.test.tsx\` under \`storefront/src/\`, or \`*.test.ts\`/\`*.spec.ts\` under \`medusa/src/\`) that reproduces the symptom and FAILS on the current code.`;
-      // The gate's own message collapses every non-compliant response into one
-      // of two generic strings — with no visibility into what the model
-      // actually returned, a repeat failure is undiagnosable from CI logs
-      // alone (this is what happened chasing issue #129: the same "missing
-      // REPRODUCTION TEST" message came back 5/5 attempts with no way to tell
-      // whether the model omitted the test, named it wrong, or something else).
-      console.warn(
-        `[dev-loop] reproduce-first gate rejected attempt ${attempts}: rootCause=${JSON.stringify(rootCause)} paths=${JSON.stringify(changes.map((c) => c.path))}`
-      );
-      await discard();
-      continue;
-    }
 
     try {
       created.length = 0;
