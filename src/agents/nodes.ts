@@ -381,27 +381,40 @@ function applyCodeChanges(changes: CodeChange[], created: string[]): void {
   for (const change of changes) {
     const isCreate = change.search.trim() === "";
     let content: string | null = null;
+    let fileExisted = true;
     try {
       content = readFileSync(change.path, "utf-8");
     } catch {
       content = null; // file doesn't exist yet
+      fileExisted = false;
     }
 
-    if (content === null) {
-      if (!isCreate) {
+    if (isCreate) {
+      // An empty "search" means "write the whole file" — valid whether the
+      // path is brand new OR already exists but has nothing to preserve
+      // (e.g. a checked-in empty stub file, observed on issue #35's
+      // quick-add-button.tsx: 0 bytes on disk, so "the file already exists"
+      // was rejecting the only valid way to fill it in, since there was no
+      // non-empty content to search against either — a permanent deadlock).
+      // Only reject when it would silently clobber real content.
+      if (content !== null && content.trim() !== "") {
         throw new Error(
-          `Cannot edit ${change.path}: the file does not exist. To create a NEW file, leave "search" empty and put the entire file content in "replace".`
+          `Cannot create ${change.path}: the file already exists with content. Use a search/replace edit (non-empty "search") to modify it, not an empty "search".`
         );
       }
       mkdirSync(dirname(change.path), { recursive: true });
       writeFileSync(change.path, change.replace, "utf-8");
-      created.push(change.path);
+      // Only track genuinely new paths for cleanup on discard — an
+      // existing-but-empty file is already tracked by git, so a discard's
+      // `git checkout -- .` restores it correctly on its own; adding it to
+      // `created` would make discard's rmSync loop delete a real file.
+      if (!fileExisted) created.push(change.path);
       continue;
     }
 
-    if (isCreate) {
+    if (content === null) {
       throw new Error(
-        `Cannot create ${change.path}: the file already exists. Use a search/replace edit (non-empty "search") to modify it, not an empty "search".`
+        `Cannot edit ${change.path}: the file does not exist. To create a NEW file, leave "search" empty and put the entire file content in "replace".`
       );
     }
     if (!content.includes(change.search)) {
