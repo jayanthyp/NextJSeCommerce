@@ -6,6 +6,10 @@ import LocalizedClientLink from "@modules/common/components/localized-client-lin
 import Thumbnail from "../thumbnail"
 import PreviewPrice, { DiscountBadge } from "./price"
 import QuickAddButton from "./quick-add-button"
+import { addToCart } from "@lib/data/cart"
+import { trackAddToCart } from "@lib/util/analytics"
+import { Button } from "@medusajs/ui"
+import { useState } from "react"
 
 export default async function ProductPreview({
   product,
