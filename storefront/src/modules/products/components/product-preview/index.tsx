@@ -11,10 +11,12 @@ export default async function ProductPreview({
   product,
   isFeatured,
   region,
+  countryCode,
 }: {
   product: HttpTypes.StoreProduct
   isFeatured?: boolean
   region: HttpTypes.StoreRegion
+  countryCode: string
 }) {
   // const pricedProduct = await listProducts({
   //   regionId: region.id,
@@ -51,6 +53,7 @@ export default async function ProductPreview({
             isSingleVariant ? (
               <QuickAddButton
                 product={product}
+                countryCode={countryCode}
                 className="hidden small:flex w-full"
               />
             ) : undefined
@@ -82,6 +85,7 @@ export default async function ProductPreview({
         {isSingleVariant && (
           <QuickAddButton
             product={product}
+            countryCode={countryCode}
             className="small:hidden mt-2 w-full h-11"
           />
         )}

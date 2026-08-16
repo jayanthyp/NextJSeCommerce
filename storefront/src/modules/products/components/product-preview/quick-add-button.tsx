@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { useParams } from "next/navigation"
 import { Button, Text } from "@medusajs/ui"
 import { addToCart } from "@lib/data/cart"
 import { trackAddToCart } from "@lib/util/analytics"
@@ -10,14 +9,11 @@ import { HttpTypes } from "@medusajs/types"
 
 type QuickAddButtonProps = {
   product: HttpTypes.StoreProduct
+  countryCode: string
   className?: string
 }
 
-export default function QuickAddButton({ product, className }: QuickAddButtonProps) {
-  // ProductPreview is a Server Component and doesn't have countryCode to pass
-  // down — read it the same way product-actions/index.tsx does, from the
-  // route params, since this component is already "use client".
-  const countryCode = useParams().countryCode as string
+export default function QuickAddButton({ product, countryCode, className }: QuickAddButtonProps) {
   const [isAdding, setIsAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
 

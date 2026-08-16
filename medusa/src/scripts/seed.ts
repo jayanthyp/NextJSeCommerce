@@ -950,15 +950,24 @@ export default async function seedDemoData({ container }: ExecArgs) {
 
   logger.info("Seeding inventory levels.");
 
-  const { data: inventoryItems } = await query.graph({
-    entity: "inventory_item",
-    fields: ["id"],
-    // query.graph defaults to a paginated result (take: 20). The original
-    // demo catalog happened to have exactly 20 variants/inventory items, so
-    // this silently worked; adding the 5th product's variant (21 total) was
-    // enough to drop it from this query and leave it with zero stock.
-    pagination: { take: 9999 },
-  });
+  // query.graph defaults to a paginated result (take: 20). The original demo
+  // catalog happened to have exactly 20 variants/inventory items, so this
+  // silently worked; adding the 5th product's variant (21 total) was enough
+  // to drop it from a single unpaginated call and leave it with zero stock.
+  // Page through in bounded batches rather than raising `take` to an
+  // arbitrary large number (a genuinely unbounded query as the catalog
+  // grows) -- this stays a fixed-size request either way.
+  const INVENTORY_PAGE_SIZE = 100;
+  const inventoryItems: { id: string }[] = [];
+  for (let skip = 0; ; skip += INVENTORY_PAGE_SIZE) {
+    const { data: page } = await query.graph({
+      entity: "inventory_item",
+      fields: ["id"],
+      pagination: { skip, take: INVENTORY_PAGE_SIZE },
+    });
+    inventoryItems.push(...page);
+    if (page.length < INVENTORY_PAGE_SIZE) break;
+  }
 
   const inventoryLevels: CreateInventoryLevelInput[] = [];
   for (const inventoryItem of inventoryItems) {
