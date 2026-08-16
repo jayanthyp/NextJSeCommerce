@@ -29,7 +29,11 @@ test.describe("Quick add-to-cart from catalog grid", () => {
     await page.goto(`/${COUNTRY_CODE}/store`)
 
     // Find the card for the seeded product and its quick-add button.
+    // The same product can appear in multiple rails (e.g. featured products
+    // and the store grid), so scope to the store grid to avoid a strict-mode
+    // violation from matching more than one card.
     const card = page
+      .getByTestId("product-grid")
       .getByTestId("product-wrapper")
       .filter({ has: page.getByTestId("product-title").filter({ hasText: productTitle }) })
     await expect(card).toBeVisible()
