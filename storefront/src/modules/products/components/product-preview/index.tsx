@@ -51,7 +51,7 @@ export default async function ProductPreview({
             isSingleVariant ? (
               <QuickAddButton
                 product={product}
-                className="hidden small:flex absolute bottom-0 inset-x-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                className="hidden small:flex w-full"
               />
             ) : undefined
           }

@@ -908,11 +908,10 @@ export default async function seedDemoData({ container }: ExecArgs) {
           weight: 50,
           status: ProductStatus.PUBLISHED,
           shipping_profile_id: shippingProfile.id,
-          images: [
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/tee-black-front.png",
-            },
-          ],
+          // No sticker-specific photo exists in the shared demo asset bucket
+          // (only tee/sweatshirt/sweatpants/shorts shots) -- reusing one of
+          // those would show the wrong product, so this falls back to
+          // Thumbnail's placeholder image instead of misrepresenting it.
           options: [
             {
               title: "Title",
