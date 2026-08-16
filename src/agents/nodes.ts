@@ -510,7 +510,13 @@ function collectMatchingNodes(sf: ts.SourceFile, file: string, terms: string[], 
 }
 
 async function readRepoContext(issueText: string): Promise<string> {
-  const files = await gitListFiles(["storefront/src", "medusa/src"]);
+  // Root-level config files (medusa-config.ts, instrumentation.ts) live
+  // OUTSIDE medusa/src, so "medusa/src" alone never surfaces them — a bug
+  // whose root cause is in medusa-config.ts (e.g. #129's MeiliSearch
+  // searchableAttributes) was never shown that file's actual content, only
+  // referenced in comments, so the model couldn't produce a verbatim
+  // search/replace edit or a real assertion test against it.
+  const files = await gitListFiles(["storefront/src", "medusa/src", "medusa/*.ts"]);
   const source = files.filter((f) => /\.(ts|tsx|js|jsx)$/.test(f));
   const terms = deriveSearchTerms(issueText);
 
@@ -812,6 +818,15 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
       lastError =
         `Bug fix is missing ${testChanges.length === 0 ? "a REPRODUCTION TEST" : "a ROOT CAUSE"}. ` +
         `Provide both: (1) \`rootCause\` naming the mechanism, and (2) a unit test (\`*.test.tsx\` under \`storefront/src/\`, or \`*.test.ts\`/\`*.spec.ts\` under \`medusa/src/\`) that reproduces the symptom and FAILS on the current code.`;
+      // The gate's own message collapses every non-compliant response into one
+      // of two generic strings — with no visibility into what the model
+      // actually returned, a repeat failure is undiagnosable from CI logs
+      // alone (this is what happened chasing issue #129: the same "missing
+      // REPRODUCTION TEST" message came back 5/5 attempts with no way to tell
+      // whether the model omitted the test, named it wrong, or something else).
+      console.warn(
+        `[dev-loop] reproduce-first gate rejected attempt ${attempts}: rootCause=${JSON.stringify(rootCause)} paths=${JSON.stringify(changes.map((c) => c.path))}`
+      );
       await discard();
       continue;
     }
