@@ -20,7 +20,7 @@ export default function QuickAddButton({ product, countryCode, className }: Quic
   const variant = product.variants?.[0]
   const inStock = (variant?.inventory_quantity ?? 0) > 0 || variant?.manage_inventory === false
 
-  if (!variant || !inStock) return null
+  if (!variant || !inStock || !countryCode) return null
 
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault()
