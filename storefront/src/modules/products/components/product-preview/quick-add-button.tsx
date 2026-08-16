@@ -1,18 +1,23 @@
 "use client"
 
 import { useState } from "react"
+import { useParams } from "next/navigation"
 import { Button, Text } from "@medusajs/ui"
 import { addToCart } from "@lib/data/cart"
 import { trackAddToCart } from "@lib/util/analytics"
+import { getProductPrice } from "@lib/util/get-product-price"
 import { HttpTypes } from "@medusajs/types"
 
 type QuickAddButtonProps = {
   product: HttpTypes.StoreProduct
-  countryCode: string
   className?: string
 }
 
-export default function QuickAddButton({ product, countryCode, className }: QuickAddButtonProps) {
+export default function QuickAddButton({ product, className }: QuickAddButtonProps) {
+  // ProductPreview is a Server Component and doesn't have countryCode to pass
+  // down — read it the same way product-actions/index.tsx does, from the
+  // route params, since this component is already "use client".
+  const countryCode = useParams().countryCode as string
   const [isAdding, setIsAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
 
@@ -28,7 +33,18 @@ export default function QuickAddButton({ product, countryCode, className }: Quic
     setAddError(null)
     try {
       await addToCart({ variantId: variant.id, quantity: 1, countryCode })
-      trackAddToCart({ product, variant, quantity: 1 })
+      const { variantPrice } = getProductPrice({ product, variantId: variant.id })
+      if (variantPrice) {
+        trackAddToCart(
+          {
+            item_id: variant.id,
+            item_name: product.title,
+            price: variantPrice.calculated_price_number,
+            quantity: 1,
+          },
+          variantPrice.currency_code
+        )
+      }
     } catch (err) {
       setAddError(err instanceof Error ? err.message : "Failed to add to cart")
     } finally {

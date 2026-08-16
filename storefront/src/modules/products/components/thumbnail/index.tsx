@@ -13,6 +13,7 @@ type ThumbnailProps = {
   className?: string
   "data-testid"?: string
   badges?: React.ReactNode
+  hoverAction?: React.ReactNode
 }
 
 const Thumbnail: React.FC<ThumbnailProps> = ({
@@ -23,6 +24,7 @@ const Thumbnail: React.FC<ThumbnailProps> = ({
   className,
   "data-testid": dataTestid,
   badges,
+  hoverAction,
 }) => {
   const initialImage = thumbnail || images?.[0]?.url
 
@@ -49,6 +51,7 @@ const Thumbnail: React.FC<ThumbnailProps> = ({
           {badges}
         </div>
       )}
+      {hoverAction}
     </Container>
   )
 }
