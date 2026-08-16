@@ -53,6 +53,7 @@ export default async function ProductPreview({
                 product={product}
                 variant={product.variants![0]}
                 className="hidden small:flex"
+                data-testid="quick-add-button"
               />
             ) : undefined
           }
@@ -85,6 +86,7 @@ export default async function ProductPreview({
             product={product}
             variant={product.variants![0]}
             className="small:hidden mt-2 w-full"
+            data-testid="quick-add-button"
           />
         )}
       </div>
