@@ -947,9 +947,17 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
       continue;
     }
     const maxFiles = authorSpec ? 3 : isBug ? 3 : 2;
-    const maxLines = authorSpec ? 150 : isBug ? 100 : 40;
+    // A feature's 2-file allowance (a new component + its one call-site wiring
+    // edit) was already correct, but the 40-line cap was tuned for a single
+    // attribute/line bug fix and blocked a legitimately minimal small
+    // component (imports, props, state, JSX easily runs 60-90 lines) — see
+    // issue #35, blocked at 2 files/69 lines despite that being the smallest
+    // reasonable implementation. Raised to match the bug-fix cap: still tight
+    // enough to reject an actual rewrite, generous enough for one small
+    // component.
+    const maxLines = authorSpec ? 150 : 100;
     if (diff.files > maxFiles || diff.lines > maxLines) {
-      lastError = `Scope-creep detected: ${diff.files} file(s) / ${diff.lines} lines changed. Make a MINIMAL edit — modify only the one file that contains the target element, ideally a single line.${authorSpec ? " (Authoring a spec allows up to one new test file.)" : isBug ? " (A bug fix may add one reproduction test file alongside the code change.)" : ""}`;
+      lastError = `Scope-creep detected: ${diff.files} file(s) / ${diff.lines} lines changed. Make a MINIMAL edit — modify only the file(s) that contain the target element.${authorSpec ? " (Authoring a spec allows up to one new test file.)" : isBug ? " (A bug fix may add one reproduction test file alongside the code change.)" : " (A new component may include its own file plus the one call-site that wires it in.)"}`;
       await discard();
       continue;
     }
