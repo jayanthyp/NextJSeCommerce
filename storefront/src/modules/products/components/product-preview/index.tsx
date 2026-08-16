@@ -52,7 +52,7 @@ export default async function ProductPreview({
               <QuickAddButton
                 product={product}
                 variant={product.variants![0]}
-                className="hidden small:flex"
+                className="hidden small:flex opacity-0 group-hover:opacity-100 transition-opacity duration-150"
                 data-testid="quick-add-button"
               />
             ) : undefined
