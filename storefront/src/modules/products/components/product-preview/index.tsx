@@ -82,7 +82,7 @@ export default async function ProductPreview({
         {isSingleVariant && (
           <QuickAddButton
             product={product}
-            className="small:hidden mt-2 w-full"
+            className="small:hidden mt-2 w-full h-11"
           />
         )}
       </div>
