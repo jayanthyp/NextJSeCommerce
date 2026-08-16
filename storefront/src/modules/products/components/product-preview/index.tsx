@@ -10,6 +10,8 @@ import { addToCart } from "@lib/data/cart"
 import { trackAddToCart } from "@lib/util/analytics"
 import { Button } from "@medusajs/ui"
 import { useState } from "react"
+import { addToCart } from "@lib/data/cart"
+import { trackAddToCart } from "@lib/util/analytics"
 
 export default async function ProductPreview({
   product,
