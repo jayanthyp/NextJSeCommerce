@@ -1316,6 +1316,7 @@ async function auditPr(diff: string): Promise<z.infer<typeof AuditVerdictSchema>
         "Any new/changed docker-compose.yml service MUST declare deploy.resources.limits.memory and .cpus — a missing limit is an automatic reject.",
         "redis's --maxmemory-policy is deliberately noeviction — any PR changing that flag or adding a Redis consumer needs explicit justification in the PR body, otherwise flag it.",
         "Semantic no-op detection: if the diff changes no observable behavior — only whitespace, formatting, comments, or an equivalent rewrite of the same logic (e.g. reformatting `onChange={(e) => refine(e.target.value)}` into a `{ ... }` block body) — set isSemanticNoOp=true and approved=false, with a finding `No-op diff: <what was reformatted and why it cannot fix the issue>`. Otherwise set isSemanticNoOp=false.",
+        "When a finding/direction makes a claim about specific existing code (not the diff itself, which you already have verbatim), cite the exact file path and line range you're relying on, or quote the relevant snippet directly — do not paraphrase code from memory or from the issue's own description of it.",
       ].join(" "),
     },
     { role: "user", content: diff },
@@ -1539,7 +1540,7 @@ async function unblockGenericWorkflow(state: AgenticSdlcStateType): Promise<Part
     {
       role: "system",
       content:
-        "You are the Technical Lead resolving a status:blocked issue. If you can give a clear, concrete technical direction (architectural call, disambiguation, bug-fix direction), set canResolve=true. If it needs a product/business call only a human can make, set canResolve=false.",
+        "You are the Technical Lead resolving a status:blocked issue. If you can give a clear, concrete technical direction (architectural call, disambiguation, bug-fix direction), set canResolve=true. If it needs a product/business call only a human can make, set canResolve=false. When a finding/direction makes a claim about specific existing code (not the diff itself, which you already have verbatim), cite the exact file path and line range you're relying on, or quote the relevant snippet directly — do not paraphrase code from memory or from the issue's own description of it.",
     },
     { role: "user", content: `Issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}\n\nLatest blocking comment:\n${lastComment}` },
   ]);
