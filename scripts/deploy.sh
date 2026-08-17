@@ -33,6 +33,16 @@ docker compose pull backend storefront
 log "Recreating containers with the new images"
 docker compose up -d --remove-orphans
 
+# Caddyfile is bind-mounted read-only into the caddy container. `up -d`
+# only recreates a container when its image/env/labels change, not when a
+# mounted file's *contents* change — so a Caddyfile-only edit would
+# otherwise silently never take effect until caddy happened to restart for
+# some unrelated reason (issue #129: a proxy route added weeks earlier was
+# still not live because of exactly this). Restart it unconditionally on
+# every deploy so the running config always matches what was just pulled.
+log "Restarting caddy to pick up any Caddyfile changes"
+docker compose restart caddy
+
 log "Pruning dangling images to keep disk usage bounded"
 docker image prune -f >/dev/null
 
