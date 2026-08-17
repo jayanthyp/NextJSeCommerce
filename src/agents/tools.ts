@@ -567,3 +567,79 @@ export function formatQaReport(input: QaReportInput): string {
   }
   return lines.join("\n");
 }
+
+// ---------------------------------------------------------------------------
+// Production health checks (tech-lead's narrow, read-only diagnostic surface)
+//
+// For ops/infra-shaped bugs (e.g. #129's empty search index / stale Caddy
+// config) tech-lead can observe live production state without a human running
+// a checklist. Deliberately narrow and read-only: a fixed allowlist of public
+// endpoints plus MeiliSearch index stats via the backend's own internal
+// network — no arbitrary SSH, no write/mutate actions, no admin key ever
+// leaving the backend container.
+// ---------------------------------------------------------------------------
+
+/** A fixed allowlist of public health endpoints tech-lead may probe. */
+const HEALTH_ENDPOINTS = [
+  { name: "backend /health", url: "https://api.example.com/health" },
+  { name: "storefront homepage", url: "https://www.example.com/" },
+  { name: "search /search/health", url: "https://www.example.com/search/health" },
+] as const;
+
+export interface HealthCheckResult {
+  name: string;
+  url: string;
+  statusCode: number | null;
+  error?: string;
+}
+
+/**
+ * Probes the fixed allowlist of public health endpoints and reports status
+ * codes. Read-only: a plain GET against a hard-coded list, never a caller-
+ * supplied URL, so it cannot be pointed at arbitrary hosts.
+ */
+export async function runHealthChecks(): Promise<HealthCheckResult[]> {
+  const results: HealthCheckResult[] = [];
+  for (const endpoint of HEALTH_ENDPOINTS) {
+    const r = await run("curl", [
+      "-s",
+      "-o",
+      "/dev/null",
+      "-w",
+      "%{http_code}",
+      "--max-time",
+      "10",
+      endpoint.url,
+    ]);
+    if (r.exitCode !== 0) {
+      results.push({ name: endpoint.name, url: endpoint.url, statusCode: null, error: r.stderr || r.stdout });
+    } else {
+      const code = parseInt(r.stdout.trim(), 10);
+      results.push({ name: endpoint.name, url: endpoint.url, statusCode: Number.isNaN(code) ? null : code });
+    }
+  }
+  return results;
+}
+
+/**
+ * Queries MeiliSearch index stats via the backend's own internal network
+ * (docker compose exec into the backend container), so no admin key ever
+ * leaves the backend. Read-only: a GET against MeiliSearch's /indexes
+ * endpoint, never a mutation.
+ */
+export async function runMeiliIndexStats(): Promise<string> {
+  const r = await run("docker", [
+    "compose",
+    ...COMPOSE_ARGS,
+    "exec",
+    "-T",
+    "backend",
+    "curl",
+    "-s",
+    "http://meilisearch:7700/indexes",
+  ]);
+  if (r.exitCode !== 0) {
+    throw new Error(`MeiliSearch index stats failed (exit ${r.exitCode}):\n${r.stderr || r.stdout}`);
+  }
+  return r.stdout;
+}
