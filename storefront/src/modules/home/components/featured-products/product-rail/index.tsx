@@ -38,7 +38,12 @@ export default async function ProductRail({
         {pricedProducts &&
           pricedProducts.map((product) => (
             <li key={product.id}>
-              <ProductPreview product={product} region={region} isFeatured />
+              <ProductPreview
+                product={product}
+                region={region}
+                countryCode={region.countries?.[0]?.iso_2 ?? ""}
+                isFeatured
+              />
             </li>
           ))}
       </ul>
