@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button, Text } from "@medusajs/ui"
 import { addToCart } from "@lib/data/cart"
 import { trackAddToCart } from "@lib/util/analytics"
@@ -16,6 +16,12 @@ type QuickAddButtonProps = {
 export default function QuickAddButton({ product, countryCode, className }: QuickAddButtonProps) {
   const [isAdding, setIsAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
+  const isMounted = useRef(true)
+  useEffect(() => {
+    return () => {
+      isMounted.current = false
+    }
+  }, [])
 
   const variant = product.variants?.[0]
   const inStock = (variant?.inventory_quantity ?? 0) > 0 || variant?.manage_inventory === false
@@ -42,9 +48,13 @@ export default function QuickAddButton({ product, countryCode, className }: Quic
         )
       }
     } catch (err) {
-      setAddError(err instanceof Error ? err.message : "Failed to add to cart")
+      if (isMounted.current) {
+        setAddError(err instanceof Error ? err.message : "Failed to add to cart")
+      }
     } finally {
-      setIsAdding(false)
+      if (isMounted.current) {
+        setIsAdding(false)
+      }
     }
   }
 
