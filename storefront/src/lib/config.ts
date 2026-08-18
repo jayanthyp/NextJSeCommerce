@@ -20,6 +20,9 @@ import Medusa from "@medusajs/js-sdk"
 const PUBLIC_BACKEND_URL =
   process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "http://localhost:9000"
 
+export const WHATSAPP_SUPPORT_NUMBER =
+  process.env.NEXT_PUBLIC_WHATSAPP_SUPPORT_NUMBER || ""
+
 const MEDUSA_BACKEND_URL =
   typeof window === "undefined"
     ? process.env.MEDUSA_BACKEND_URL || PUBLIC_BACKEND_URL
