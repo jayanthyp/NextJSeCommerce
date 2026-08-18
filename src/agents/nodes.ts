@@ -338,6 +338,20 @@ const CodeChangesSchema = z.object({
  * cold-start prompt, which is what let issue #129 repeatedly reproduce the
  * exact same "missing REPRODUCTION TEST" failure across attempts.
  */
+/**
+ * Infra/CI-only surfaces with no meaningful test path under storefront/src
+ * or medusa/src — a fix here can't produce a *.test.ts/*.spec.ts that fails
+ * on unfixed code no matter how correct the fix is (issues #141/#142 both
+ * tripped the dev_loop<->tech_lead circuit breaker for exactly this reason
+ * before this exemption existed).
+ */
+const WORKFLOW_ONLY_RE = /^(\.github\/workflows\/.*\.ya?ml|scripts\/.*\.sh)$/;
+
+/** True when every changed path is infra/CI-only (see WORKFLOW_ONLY_RE) — used to exempt the reproduction-test requirement below. */
+function isWorkflowOnlyChange(changes: { path: string }[]): boolean {
+  return changes.length > 0 && changes.every((c) => WORKFLOW_ONLY_RE.test(c.path));
+}
+
 function codeChangesSchemaFor(isBug: boolean) {
   if (!isBug) return CodeChangesSchema;
   return CodeChangesSchema.superRefine((data, ctx) => {
@@ -349,12 +363,12 @@ function codeChangesSchemaFor(isBug: boolean) {
           "Bug fixes must set `rootCause`: one sentence naming the actual mechanism behind the symptom, before writing the fix.",
       });
     }
-    if (!data.changes.some((c) => TEST_FILE_RE.test(c.path))) {
+    if (!isWorkflowOnlyChange(data.changes) && !data.changes.some((c) => TEST_FILE_RE.test(c.path))) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["changes"],
         message:
-          "Bug fixes must include a reproduction test in `changes`: a NEW `*.test.tsx`/`*.test.ts`/`*.spec.ts` file (under `storefront/src/` for a frontend root cause, or `medusa/src/` for a backend/config root cause) that fails on the current code.",
+          "Bug fixes must include a reproduction test in `changes`: a NEW `*.test.tsx`/`*.test.ts`/`*.spec.ts` file (under `storefront/src/` for a frontend root cause, or `medusa/src/` for a backend/config root cause) that fails on the current code. (Exempt only when EVERY changed path is infra/CI-only — `.github/workflows/*.yml` or `scripts/*.sh` — since those have no test surface in either directory.)",
       });
     }
   });
@@ -839,6 +853,7 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
     ? `BUG-FIX REQUIREMENTS (this issue is a bug):
 - ROOT CAUSE FIRST — set \`rootCause\` to the actual mechanism behind the symptom (e.g. a controlled input whose \`value\` never updates, an overlay intercepting pointer events). Name it before writing the fix.
 - REPRODUCTION TEST — the \`changes\` array MUST contain BOTH: (a) a NEW unit test file (\`*.test.tsx\`/\`*.test.ts\`/\`*.spec.ts\`) that reproduces the bug, and (b) the minimal code change that makes that test pass. Put the test in the SAME LAYER as the root cause, not always the frontend: if \`rootCause\` points at storefront UI code, add a \`*.test.tsx\` under \`storefront/src/\` next to the component using real interaction (\`userEvent.type\`/\`click\`, never Playwright \`fill()\`), importing \`@testing-library/react\`, \`@testing-library/user-event\`, and \`@testing-library/jest-dom\`. If \`rootCause\` points at Medusa backend/config code (e.g. \`medusa-config.ts\`, a service, a workflow), add a \`*.test.ts\`/\`*.spec.ts\` under \`medusa/src/\` that imports and asserts on that backend code directly — do NOT write a frontend component test for a backend bug; it cannot fail on unfixed backend code and will not reproduce anything.
+  EXCEPTION: if the fix is ENTIRELY infra/CI-only (every changed path is under \`.github/workflows/\` or \`scripts/\`, e.g. a \`.yml\` or \`.sh\` file), skip the reproduction test — there is no test surface for that in either directory. \`rootCause\` is still required.
 
 `
     : "";
