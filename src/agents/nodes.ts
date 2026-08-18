@@ -52,6 +52,7 @@ import {
   dockerComposeRebuildStorefront,
   formatBlockingComment,
   formatQaReport,
+  runHealthChecks,
 } from "./tools.js";
 
 const MAX_DEV_LOOP_ATTEMPTS = 5;
@@ -1533,15 +1534,29 @@ async function unblockGenericWorkflow(state: AgenticSdlcStateType): Promise<Part
     return { currentLabel: "status:blocked-architecture-review" };
   }
 
+  // For an ops/infra-shaped bug, a live read of production's own public
+  // endpoints can turn "here are 5 hypotheses to check manually" (#129's
+  // original triage checklist) into a concrete finding, without a human
+  // needing to run it. Read-only, and a no-op when SMOKE_* isn't configured
+  // for this run — see runHealthChecks' own doc comment for why this is
+  // deliberately the full extent of what tech-lead can observe about
+  // production (no VPS/Docker access exists from this runner).
+  const healthChecks = await runHealthChecks();
+  const healthContext = healthChecks.length
+    ? `\n\nLive production health checks (read-only, just run):\n${healthChecks
+        .map((h) => `- ${h.name} (${h.url}): ${h.error ? `ERROR — ${h.error}` : `HTTP ${h.statusCode}`}`)
+        .join("\n")}`
+    : "";
+
   const decision = await extractStructured(
     z.object({ canResolve: z.boolean(), direction: z.string() }),
     [
     {
       role: "system",
       content:
-        "You are the Technical Lead resolving a status:blocked issue. If you can give a clear, concrete technical direction (architectural call, disambiguation, bug-fix direction), set canResolve=true. If it needs a product/business call only a human can make, set canResolve=false.",
+        "You are the Technical Lead resolving a status:blocked issue. If you can give a clear, concrete technical direction (architectural call, disambiguation, bug-fix direction), set canResolve=true. If it needs a product/business call only a human can make, set canResolve=false. If live health-check results are provided below and show a concrete failure (a non-2xx status or an error), cite that directly as evidence in your direction rather than listing hypotheses.",
     },
-    { role: "user", content: `Issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}\n\nLatest blocking comment:\n${lastComment}` },
+    { role: "user", content: `Issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}\n\nLatest blocking comment:\n${lastComment}${healthContext}` },
   ]);
 
   if (decision.canResolve) {
