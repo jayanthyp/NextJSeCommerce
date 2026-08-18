@@ -102,7 +102,7 @@ export default function SearchAutocomplete({ onClose }: { onClose: () => void })
   return (
     <div
       ref={containerRef}
-      className="absolute top-full right-0 mt-2 w-[360px] bg-white dark:bg-ui-bg-base border border-ui-border-base rounded-rounded shadow-lg z-[900]"
+      className="fixed top-16 left-4 right-4 mt-2 w-auto small:absolute small:top-full small:right-0 small:left-auto small:w-[360px] bg-white dark:bg-ui-bg-base border border-ui-border-base rounded-rounded shadow-lg z-[900]"
     >
       <InstantSearch searchClient={searchClient} indexName={SEARCH_INDEX_NAME}>
         <div className="px-4">
