@@ -99,10 +99,14 @@ export default function SearchAutocomplete({ onClose }: { onClose: () => void })
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [onClose])
 
+  // Mobile search autocomplete dropdown positioning:
+  // - fixed positioning relative to viewport on mobile devices (< 1024px)
+  // - top-[72px] corresponds to the 64px header height (h-16) + 8px gap (mt-2 equivalent)
+  // - left-4 right-4 stretches across screen with comfortable margins
   return (
     <div
       ref={containerRef}
-      className="fixed top-16 left-4 right-4 mt-2 w-auto small:absolute small:top-full small:right-0 small:left-auto small:w-[360px] bg-white dark:bg-ui-bg-base border border-ui-border-base rounded-rounded shadow-lg z-[900]"
+      className="fixed top-[72px] left-4 right-4 w-auto small:absolute small:top-full small:right-0 small:left-auto small:mt-2 small:w-[360px] bg-white dark:bg-ui-bg-base border border-ui-border-base rounded-rounded shadow-lg z-[900]"
     >
       <InstantSearch searchClient={searchClient} indexName={SEARCH_INDEX_NAME}>
         <div className="px-4">
