@@ -1,3 +1,5 @@
+"use client"
+
 const buildWhatsAppLink = (rawNumber: string) => {
   const digitsOnly = rawNumber.replace(/\D/g, "")
   const message = encodeURIComponent(
