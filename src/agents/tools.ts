@@ -189,6 +189,14 @@ export async function ghPrComment(prNumber: number, body: string): Promise<void>
   assertOk(await run("gh", ["pr", "comment", String(prNumber), "--repo", REPO, "--body", body]), `gh pr comment #${prNumber}`);
 }
 
+/** Closes a PR without merging it (e.g. its target issue was already resolved elsewhere) — never used to abandon unreviewed work silently, always paired with an explanatory comment. */
+export async function ghPrClose(prNumber: number, comment: string): Promise<void> {
+  assertOk(
+    await run("gh", ["pr", "close", String(prNumber), "--repo", REPO, "--comment", comment]),
+    `gh pr close #${prNumber}`
+  );
+}
+
 /** Unapproved (non-tech-lead) review comment — never `--approve` from here; that's exclusively runTechLeadApprove below. */
 export async function ghPrReviewComment(prNumber: number, body: string): Promise<void> {
   assertOk(
