@@ -1335,7 +1335,13 @@ async function auditPr(diff: string): Promise<z.infer<typeof AuditVerdictSchema>
  */
 const MAX_ARCHITECTURE_ESCALATIONS = 3;
 
-/** Matches this workflow's own three escalation comment headers so re-runs can count how many times this issue has already been escalated. */
+/**
+ * Matches this workflow's own two escalation comment headers so re-runs can
+ * count how many times this issue has already been escalated. Deliberately
+ * does NOT match "🛑 Circuit Breaker Tripped" — that comment is what HALTS
+ * escalation (see the check above), so it must never itself count toward
+ * the cap that triggers it.
+ */
 function countArchitectureEscalations(comments: { body: string }[]): number {
   return comments.filter(
     (c) => c.body.startsWith("🛑 No-Op Diff Rejected") || c.body.startsWith("🛑 **Architectural Escalation Required**")
