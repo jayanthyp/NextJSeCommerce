@@ -13,7 +13,7 @@
  * #148 sitting closed with `status:deploying` still attached) — both are
  * pure noise for anyone reading the tracker afterwards.
  */
-import { ghIssueList, ghIssueEdit, ghPrList, ghPrClose } from "../src/agents/tools.js";
+import { ghIssueList, ghIssueEdit, ghPrListClosingIssue, ghPrClose } from "../src/agents/tools.js";
 
 interface ListedIssue {
   number: number;
@@ -22,6 +22,7 @@ interface ListedIssue {
 
 interface ListedPr {
   number: number;
+  body: string;
 }
 
 // How far back to look for closed issues — anything older than this has
@@ -42,7 +43,14 @@ async function main(): Promise<void> {
 }
 
 async function reconcileOrphanedPrs(issueNumber: number): Promise<void> {
-  const prs = (await ghPrList(`Closes #${issueNumber} in:body`, "number", "open")) as ListedPr[];
+  // GitHub's search API is best-effort even with a quoted phrase — this
+  // action is destructive (closes a PR), so re-verify the literal substring
+  // in code rather than trusting the search match alone. A PR #32/#51/#53
+  // incident (issue #154 follow-up) got closed against the wrong issue
+  // number purely from a search false-positive; never repeat that.
+  const closesRe = new RegExp(`closes\\s+#${issueNumber}\\b`, "i");
+  const candidates = (await ghPrListClosingIssue(issueNumber, "number,body", "open")) as ListedPr[];
+  const prs = candidates.filter((pr) => closesRe.test(pr.body));
   for (const pr of prs) {
     console.log(`[reconcile] issue #${issueNumber} is closed but PR #${pr.number} is still open — closing as superseded`);
     await ghPrClose(

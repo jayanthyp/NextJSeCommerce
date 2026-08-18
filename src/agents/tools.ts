@@ -140,6 +140,25 @@ export async function ghPrList(search: string, fields: string, state: "open" | "
   return JSON.parse(r.stdout) as unknown[];
 }
 
+/**
+ * Finds the PR(s) whose body says "Closes #<issueNumber>". The phrase MUST be
+ * quoted in the search query — GitHub's `in:body` search tokenizes an
+ * unquoted `Closes #29 in:body` into independent terms ("closes", "29"),
+ * matching any PR where those appear anywhere in the body, not the literal
+ * substring. That false-positive matched PR #32 (body says "Closes #30")
+ * against issue #29 purely because "29" appeared elsewhere in its body, and
+ * scripts/reconcile-closed-issues.ts then closed it as orphaned — a real PR
+ * with real pending work. Every caller that needs "the PR for this issue"
+ * must go through this helper, not construct the search string inline.
+ */
+export async function ghPrListClosingIssue(
+  issueNumber: number,
+  fields: string,
+  state: "open" | "all" = "open"
+): Promise<unknown[]> {
+  return ghPrList(`"Closes #${issueNumber}" in:body`, fields, state);
+}
+
 export async function ghPrDiff(prNumber: number): Promise<string> {
   const r = await run("gh", ["pr", "diff", String(prNumber), "--repo", REPO]);
   assertOk(r, `gh pr diff #${prNumber}`);
