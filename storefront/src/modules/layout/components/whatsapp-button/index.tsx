@@ -23,7 +23,6 @@ export default function WhatsAppButton() {
       rel="noopener noreferrer"
       aria-label="Chat with us on WhatsApp"
       data-testid="whatsapp-button"
-      data-testid="whatsapp-button"
       className="fixed bottom-20 right-4 small:bottom-6 small:right-6 z-[1000] h-14 w-14 rounded-circle bg-[#25D366] flex items-center justify-center shadow-lg hover:shadow-xl hover:scale-105 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#25D366]"
     >
       <svg
