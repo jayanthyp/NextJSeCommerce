@@ -46,6 +46,7 @@ const NewsletterSignup = () => {
           type="email"
           placeholder="you@example.com"
           required
+          autoComplete="email"
           data-testid="newsletter-email-input"
         />
         {state && !state.success && (
