@@ -1322,11 +1322,46 @@ async function auditPr(diff: string): Promise<z.infer<typeof AuditVerdictSchema>
   ]);
 }
 
+/**
+ * Cap on consecutive status:blocked-architecture-review rounds per issue —
+ * the escalation-cycle counterpart to handoverCount/MAX_HANDOVERS. Unlike
+ * that in-process counter, this one can't live in LangGraph state: each
+ * escalation round is a genuinely separate graph run (a fresh process per
+ * GitHub Actions job triggered by the owner's reply — see
+ * ownerReplyWorkflow's comment on why there's no persisted checkpoint
+ * across runs), so MemorySaver never survives between rounds. GitHub's own
+ * comment history is the only durable record, so the count comes from
+ * there instead of an Annotation field.
+ */
+const MAX_ARCHITECTURE_ESCALATIONS = 3;
+
+/** Matches this workflow's own three escalation comment headers so re-runs can count how many times this issue has already been escalated. */
+function countArchitectureEscalations(comments: { body: string }[]): number {
+  return comments.filter(
+    (c) => c.body.startsWith("🛑 No-Op Diff Rejected") || c.body.startsWith("🛑 **Architectural Escalation Required**")
+  ).length;
+}
+
 async function techLeadReviewWorkflow(state: AgenticSdlcStateType): Promise<Partial<AgenticSdlcStateType>> {
   await ghIssueEdit(state.issueNumber, {
     addLabel: "status:tech-lead-review-in-progress",
     removeLabel: "status:in-review",
   });
+
+  const priorEscalations = countArchitectureEscalations((await ghIssueView(state.issueNumber)).comments);
+  if (priorEscalations >= MAX_ARCHITECTURE_ESCALATIONS) {
+    console.warn(`[circuit-breaker] issue #${state.issueNumber}: ${priorEscalations} prior architecture escalations — halting instead of re-escalating`);
+    await ghIssueComment(
+      state.issueNumber,
+      formatBlockingComment(
+        `This issue has been escalated to architecture review ${priorEscalations} times already without converging. Halting automatic re-escalation — further findings, however valid, aren't resolving anything without a human decision.`,
+        ["Provide a more specific fix direction", "Confirm this needs a different approach entirely", "Close/deprioritize this issue"],
+        "🛑 **Circuit Breaker Tripped**"
+      )
+    );
+    await ghIssueEdit(state.issueNumber, { addLabel: "status:blocked", removeLabel: "status:tech-lead-review-in-progress" });
+    return { currentLabel: "status:blocked" };
+  }
 
   const prs = (await ghPrList(`Closes #${state.issueNumber} in:body`, "number,headRefName,url")) as {
     number: number;
