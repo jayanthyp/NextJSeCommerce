@@ -22,7 +22,3 @@
 //     },
 //   })
 // }
-
-// NOTE: When posting root-cause claims about specific code, include a
-// "Verified against: <path>:<line-range>" citation (or a verbatim snippet)
-// so a human can spot-check the claim without re-reading the file.
