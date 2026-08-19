@@ -16,6 +16,18 @@ export default async function reindexSearch({ container }: ExecArgs) {
   const logger = container.resolve("logger");
   const eventBus = container.resolve(Modules.EVENT_BUS);
 
+  // Destructive pipeline automation must default to dry-run until a human
+  // reviews the output and explicitly opts in (see docs/pipeline-safety.md).
+  const dryRun = process.env.DRY_RUN !== "false";
+
+  if (dryRun) {
+    logger.info(
+      "[DRY-RUN] WOULD emit meilisearch.sync to trigger a full product reindex. " +
+        "Set DRY_RUN=false to run for real."
+    );
+    return;
+  }
+
   logger.info("Emitting meilisearch.sync to trigger a full product reindex...");
   await eventBus.emit({ name: "meilisearch.sync", data: {} });
   logger.info("meilisearch.sync emitted. Check the MeiliSearch index shortly to confirm documents appear.");
