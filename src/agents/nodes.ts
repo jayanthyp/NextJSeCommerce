@@ -20,6 +20,7 @@ import {
   ghIssueComment,
   ghIssueCreate,
   ghPrList,
+  ghPrListClosingIssue,
   ghPrDiff,
   ghPrFiles,
   ghPrChecks,
@@ -769,7 +770,7 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
   // Re-entry check (dev-loop.md step 2): an existing open PR means this is a
   // resumed/re-entered issue (e.g. tech-lead handed a resolved status:blocked
   // issue back), not fresh work.
-  const existingPrs = (await ghPrList(`Closes #${state.issueNumber} in:body`, "number,headRefName")) as {
+  const existingPrs = (await ghPrListClosingIssue(state.issueNumber,"number,headRefName")) as {
     number: number;
     headRefName: string;
   }[];
@@ -1051,7 +1052,7 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
   // Drives the dev↔QA autonomous-retry bound: incremented on every QA run,
   // read by routeAfterQualityAnalyst (via the label) to decide retry vs escalate.
   const qaAttemptCount = (state.qaAttemptCount ?? 0) + 1;
-  const prs = (await ghPrList(`Closes #${state.issueNumber} in:body`, "number,headRefName,url")) as {
+  const prs = (await ghPrListClosingIssue(state.issueNumber,"number,headRefName,url")) as {
     number: number;
     headRefName: string;
     url: string;
@@ -1385,7 +1386,7 @@ async function techLeadReviewWorkflow(state: AgenticSdlcStateType): Promise<Part
     return { currentLabel: "status:blocked" };
   }
 
-  const prs = (await ghPrList(`Closes #${state.issueNumber} in:body`, "number,headRefName,url")) as {
+  const prs = (await ghPrListClosingIssue(state.issueNumber,"number,headRefName,url")) as {
     number: number;
     headRefName: string;
     url: string;
@@ -1571,7 +1572,7 @@ async function runDeployWorkflow(issueNumber: number, prNumber: number, headRefN
 
 async function unblockGenericWorkflow(state: AgenticSdlcStateType): Promise<Partial<AgenticSdlcStateType>> {
   const issue = await ghIssueView(state.issueNumber);
-  const prs = (await ghPrList(`Closes #${state.issueNumber} in:body`, "number,headRefName,url")) as { number: number; url: string }[];
+  const prs = (await ghPrListClosingIssue(state.issueNumber,"number,headRefName,url")) as { number: number; url: string }[];
   const pr = prs[0];
 
   const lastComment = issue.comments[issue.comments.length - 1]?.body ?? "";
@@ -1650,7 +1651,7 @@ async function ownerReplyWorkflow(state: AgenticSdlcStateType): Promise<Partial<
     // origin marker (no cross-run state — see plan decision #2), infer from
     // whether an open PR exists: a PR-review FAIL re-enters review; a 2a punt
     // re-enters dev.
-    const prs = (await ghPrList(`Closes #${state.issueNumber} in:body`, "number")) as { number: number }[];
+    const prs = (await ghPrListClosingIssue(state.issueNumber,"number")) as { number: number }[];
     if (prs.length > 0) {
       await ghIssueEdit(state.issueNumber, { addLabel: "status:in-review", removeLabel: "status:blocked-architecture-review" });
       return { currentLabel: "status:in-review" };

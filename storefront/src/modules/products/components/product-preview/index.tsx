@@ -6,6 +6,7 @@ import LocalizedClientLink from "@modules/common/components/localized-client-lin
 import Thumbnail from "../thumbnail"
 import PreviewPrice, { DiscountBadge } from "./price"
 import QuickAddButton from "./quick-add-button"
+import WishlistButton from "./wishlist-button"
 
 export default async function ProductPreview({
   product,
@@ -44,6 +45,7 @@ export default async function ProductPreview({
   return (
     <LocalizedClientLink href={`/products/${product.handle}`} className="group">
       <div data-testid="product-wrapper" className="relative">
+        <WishlistButton productId={product.id!} />
         <Thumbnail
           thumbnail={product.thumbnail}
           images={product.images}
