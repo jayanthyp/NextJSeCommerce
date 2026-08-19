@@ -6,6 +6,9 @@ import {
 import type AbandonedCartTrackingModuleService from "../modules/abandoned-cart-tracking/service"
 
 const HOUR = 60 * 60 * 1000
+// Destructive automation (sending emails to customers) defaults to dry-run
+// until a human has reviewed the dry-run output and flips this to false.
+const DRY_RUN = process.env.ABANDONED_CART_REMINDERS_LIVE !== "true"
 const TIERS = [
   { key: "reminder_1h_sent_at" as const, template: "abandoned-cart-1h", after: 1 * HOUR },
   { key: "reminder_24h_sent_at" as const, template: "abandoned-cart-24h", after: 24 * HOUR },
@@ -69,6 +72,13 @@ export default async function abandonedCartRemindersJob(
       }
 
       try {
+        if (DRY_RUN) {
+          logger.info(
+            `[abandoned-cart-reminders] DRY-RUN: would send ${tier.template} for cart ${cart.id}`
+          )
+          continue
+        }
+
         await notificationModuleService.createNotifications({
           to: cart.email!,
           channel: "email",
