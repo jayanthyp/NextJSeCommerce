@@ -20,7 +20,15 @@
       "Bash(npx playwright test*)",
       "Bash(bash scripts/tech-lead-approve.sh *)",
       "Bash(bash scripts/tech-lead-merge.sh *)",
-      "Bash(bash scripts/tech-lead-rollback-revert.sh *)"
+      "Bash(bash scripts/tech-lead-rollback-revert.sh *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr checks*)",
+      "Bash(git fetch*)",
+      "Bash(git worktree add *)",
+      "Bash(git worktree remove *)",
+      "Bash(cp .env ../qa-worktree-issue-*)",
+      "Bash(docker compose -p qa-issue-*)",
+      "Bash(gh gist create*)"
     ],
     "deny": [
       "Bash(git push --force*)",
