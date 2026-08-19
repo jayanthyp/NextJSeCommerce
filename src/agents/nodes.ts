@@ -1052,11 +1052,21 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
   // Drives the dev↔QA autonomous-retry bound: incremented on every QA run,
   // read by routeAfterQualityAnalyst (via the label) to decide retry vs escalate.
   const qaAttemptCount = (state.qaAttemptCount ?? 0) + 1;
-  const prs = (await ghPrListClosingIssue(state.issueNumber,"number,headRefName,url")) as {
+  // GitHub's search API is best-effort even with a quoted phrase (see
+  // ghPrListClosingIssue's own doc comment — this exact node posted a QA
+  // report for PR #151 against issue #140 before the phrase was quoted,
+  // because the unquoted search matched #151 as well as the real #153).
+  // Re-verify the literal substring in code before trusting prs[0]; this
+  // node posts a report and advances a label off of `pr`, so a wrong match
+  // here is user-visible, not just a missed cleanup.
+  const closesRe = new RegExp(`closes\\s+#${state.issueNumber}\\b`, "i");
+  const candidates = (await ghPrListClosingIssue(state.issueNumber, "number,headRefName,url,body")) as {
     number: number;
     headRefName: string;
     url: string;
+    body: string;
   }[];
+  const prs = candidates.filter((c) => closesRe.test(c.body));
   const pr = prs[0];
   if (!pr) {
     await ghIssueComment(
