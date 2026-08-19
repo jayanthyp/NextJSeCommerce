@@ -70,8 +70,20 @@ moment.
    - **Generic blocked queue** (from `dev-loop`'s ambiguous-issue blocks, or `quality-analyst`'s QA
      failures — both use the plain `status:blocked` label):
      `gh issue list --label "status:blocked" --json number,title,body,comments`
+   - **Stale UI-clarity backstop** (`ui-designer`'s own queue — you don't own this one day-to-day, you
+     only sweep for staleness): `gh issue list --label "status:blocked-ui-work-need-clarity" --json number,title,comments,updatedAt`.
+     For each, check `updatedAt` (or the newest comment's timestamp) against now. If it's been **more
+     than 7 days** with no new comment since `ui-designer`'s clarity-request, treat it the same as a
+     punt from your own Workflow 2a: escalate it directly —
+     ```bash
+     gh issue edit <n> --remove-label "status:blocked-ui-work-need-clarity" --add-label "status:blocked-architecture-review"
+     gh issue comment <n> --body "🛑 **Escalated from ui-designer** — no reply after 7+ days on the UI clarity question above. <same 📌/🔘/✍️ schema, restating ui-designer's original options>"
+     ```
+     A UI question stale for over a week is no longer just a design detail — it's blocking the pipeline,
+     which is squarely your lane. Don't sweep issues younger than 7 days; `ui-designer`'s own Workflow C
+     is still the first responder for a fresh reply.
 
-3. **Idle State:** If no actionable PRs or issues are returned across all four queues, sleep for 180
+3. **Idle State:** If no actionable PRs or issues are returned across all five queues, sleep for 180
    seconds and rerun from step 1.
 
 ---
@@ -184,19 +196,34 @@ moment.
 
 #### Workflow 2: Unblocking Queues
 
-**2a. Generic `status:blocked` queue (from `dev-loop`'s ambiguous-issue blocks, or `quality-analyst`'s
-QA failures)** — you may resolve these autonomously, without waiting for a reply:
+**2a. Generic `status:blocked` queue** — you are its **sole owner**. `dev-loop` no longer polls or
+resolves `status:blocked` itself (see `dev-loop.md`'s "Blocked issues are no longer this loop's
+concern" section) precisely because two agents racing the same queue on overlapping cycles was itself a
+bug (PR #38, issue #44) — don't reintroduce that by treating this as a shared queue. Issues land here
+from `dev-loop`'s own ambiguous-issue blocks, or from
+`quality-analyst`'s QA failures. You may resolve either kind autonomously, without waiting for a reply:
 
 1. Read the issue body and the blocking comment (check who/what posted it — `dev-loop`'s ambiguity
    protocol or a `quality-analyst` FAIL report read differently; read both for what they actually say).
-2. **If you can determine a clear technical direction** (an architectural call, a disambiguation, a fix
-   direction for a QA-reported bug): post it as a comment and hand the issue back to `dev-loop`:
+2. **If the block came from `quality-analyst`**, find the existing PR before doing anything else —
+   `gh pr list --search "<n> in:body" --state open --json number,headRefName,url` — you'll need its
+   branch name for the hand-back comment in step 3, since the fix belongs on that PR, not a new one.
+3. **If you can determine a clear technical direction** (an architectural call, a disambiguation, a fix
+   direction for a QA-reported bug): post it as a comment and hand the issue back to `dev-loop`. Name
+   the existing branch/PR explicitly when there is one, so `dev-loop` pushes the fix there instead of
+   opening a competing PR:
    ```bash
    gh issue comment <n> --body "### 🧭 Technical Lead Direction
-   <your direction, concrete enough for dev-loop to resume implementation without guessing>"
-   gh issue edit <n> --remove-label "status:blocked" --add-label "status:ready-for-dev"
+   <your direction, concrete enough for dev-loop to resume implementation without guessing>
+
+   <if applicable:> This issue already has an open PR: <PR URL> (branch \`<headRefName>\`) — push the fix
+   there, don't open a new PR."
+   gh issue edit <n> --remove-label "status:blocked" --add-label "status:ready-for-dev" --remove-assignee "@me"
    ```
-3. **If you genuinely can't resolve it yourself** — it needs a product/business call, not an
+   Clearing the assignee is load-bearing, not cosmetic: `dev-loop`'s pickup query filters on
+   `no:assignee`, and the issue is still assigned from whichever agent claimed it before it got blocked
+   — skip `--remove-assignee` and the issue silently vanishes from `dev-loop`'s poll forever.
+4. **If you genuinely can't resolve it yourself** — it needs a product/business call, not an
    engineering one — escalate it into your own owner-reply-only queue instead of guessing:
    ```bash
    gh issue edit <n> --remove-label "status:blocked" --add-label "status:blocked-architecture-review"
@@ -211,7 +238,7 @@ Workflow 1, or issues you punted from 2a)** — **owner-reply-only**, never reso
 2. If it is a reply: parse the chosen option or custom direction, then route back to where it came
    from:
    - If it originated from a PR review FAIL → `gh issue edit <n> --remove-label "status:blocked-architecture-review" --add-label "status:in-review"` (re-enters Workflow 1 next cycle).
-   - If it originated from a 2a punt → `gh issue edit <n> --remove-label "status:blocked-architecture-review" --add-label "status:ready-for-dev"`.
+   - If it originated from a 2a punt → `gh issue edit <n> --remove-label "status:blocked-architecture-review" --add-label "status:ready-for-dev" --remove-assignee "@me"` — same reasoning as 2a: without clearing the assignee, `dev-loop`'s `no:assignee` pickup query never sees it again.
 
 **2c. `status:blocked-deploy-failed` queue** — also **owner-reply-only** (a bad production deploy
 needs human eyes on VPS/infra state, not another automated guess):

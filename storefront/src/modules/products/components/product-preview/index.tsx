@@ -5,15 +5,19 @@ import { HttpTypes } from "@medusajs/types"
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
 import Thumbnail from "../thumbnail"
 import PreviewPrice, { DiscountBadge } from "./price"
+import QuickAddButton from "./quick-add-button"
+import WishlistButton from "./wishlist-button"
 
 export default async function ProductPreview({
   product,
   isFeatured,
   region,
+  countryCode,
 }: {
   product: HttpTypes.StoreProduct
   isFeatured?: boolean
   region: HttpTypes.StoreRegion
+  countryCode: string
 }) {
   // const pricedProduct = await listProducts({
   //   regionId: region.id,
@@ -36,14 +40,26 @@ export default async function ProductPreview({
     cheapestPrice.price_type === "sale" &&
     cheapestPrice.percentage_diff !== "0"
 
+  const isSingleVariant = product.variants?.length === 1
+
   return (
     <LocalizedClientLink href={`/products/${product.handle}`} className="group">
-      <div data-testid="product-wrapper">
+      <div data-testid="product-wrapper" className="relative">
+        <WishlistButton productId={product.id!} />
         <Thumbnail
           thumbnail={product.thumbnail}
           images={product.images}
           size="full"
           isFeatured={isFeatured}
+          hoverAction={
+            isSingleVariant ? (
+              <QuickAddButton
+                product={product}
+                countryCode={countryCode}
+                className="hidden small:flex w-full"
+              />
+            ) : undefined
+          }
           badges={
             showDiscountBadge || isBestseller ? (
               <>
@@ -68,6 +84,13 @@ export default async function ProductPreview({
             {cheapestPrice && <PreviewPrice price={cheapestPrice} />}
           </div>
         </div>
+        {isSingleVariant && (
+          <QuickAddButton
+            product={product}
+            countryCode={countryCode}
+            className="small:hidden mt-2 w-full h-11"
+          />
+        )}
       </div>
     </LocalizedClientLink>
   )

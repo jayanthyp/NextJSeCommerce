@@ -15,10 +15,21 @@
  * PRODUCT_HANDLE ties to one of four demo products seeded with a "Medusa
  * T-Shirt" title. If you reseed with different data, update
  * PRODUCT_HANDLE / COUNTRY_CODE here rather than in the specs.
+ *
+ * SINGLE_VARIANT_PRODUCT_HANDLE is the one product in the seed catalog with
+ * no Size/Color options (a single "Default Title" variant) -- every other
+ * seeded product has real variant options, which matters for any spec (e.g.
+ * quick-add-to-cart.spec.ts, issue #35) that targets single-variant-only UI.
  */
 export const COUNTRY_CODE = "au"
 
+/** Display name matching COUNTRY_CODE, for specs asserting on the
+ * region-switcher's visible/aria-label text rather than the raw code. */
+export const COUNTRY_NAME = "Australia"
+
 export const PRODUCT_HANDLE = "t-shirt"
+
+export const SINGLE_VARIANT_PRODUCT_HANDLE = "sticker-pack"
 
 export const DELIVERY_METHOD_NAME = "Standard Shipping"
 
@@ -33,6 +44,7 @@ export function uniqueTestCustomer() {
     postalCode: "2000",
     city: "Sydney",
     countryCode: COUNTRY_CODE,
+    province: "New South Wales",
     // Unique per run so repeated test runs don't collide on the same
     // customer/order history in Admin.
     email: `e2e-${stamp}@example.com`,

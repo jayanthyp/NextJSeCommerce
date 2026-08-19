@@ -2,11 +2,12 @@ name: Test
 
 # Runs on every push/PR for visibility, AND as a reusable workflow
 # (workflow_call) so deploy-vps.yml can `needs:` it. Only backend-tests and
-# storefront-unit actually gate a deploy (via the outputs below) —
-# storefront-e2e still runs here on every push/PR so failures stay visible,
-# but deploy-vps.yml deliberately doesn't wait on it (see that file's
-# `deploy` job for why: it's the slowest job and its failures are usually
-# either flakiness or caught well before a merge reaches `main`).
+# storefront-unit actually gate a deploy (via the outputs below).
+#
+# storefront-e2e (Playwright) is DISABLED here per owner decision
+# (2026-08-10) — see the `if: false` on that job. Playwright e2e is no longer
+# run in GitHub Actions; the quality-analyst agent runs the Playwright suite
+# against each PR's branch in an isolated local docker-compose stack instead.
 on:
   push:
     branches: [main]
@@ -134,6 +135,7 @@ jobs:
       - run: npm run test:unit
 
   storefront-e2e:
+    if: false  # Playwright e2e disabled per owner decision (2026-08-10)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -175,6 +177,18 @@ jobs:
 
       - name: Seed the database
         run: docker compose -f docker-compose.yml -f docker-compose.local.yml exec -T backend npx medusa exec ./src/scripts/seed.js
+
+      # seed.js only creates the "Europe" region (gb/de/dk/se/fr/es/it). The
+      # storefront's SELECTABLE_COUNTRY_CODES (see storefront/src/lib/constants.tsx,
+      # from issue #15) restricts the country-select dropdown to India/Australia
+      # only, and production already has those regions via this same script
+      # (see docs/india-launch-readiness.md's "Confirmed already in place" note)
+      # — CI's ephemeral stack never ran it, so every `/in/...` and `/au/...`
+      # URL 404'd outright (middleware can't resolve a region for an unlisted
+      # country), which is what was actually breaking e2e on every spec that
+      # navigates through a country-coded URL (root-caused on issue #33/#28).
+      - name: Add India/Australia/etc regions (matching production setup)
+        run: docker compose -f docker-compose.yml -f docker-compose.local.yml exec -T backend npx medusa exec ./src/scripts/add-global-regions.js
 
       - name: Create a temp admin user to read the publishable key
         run: docker compose -f docker-compose.yml -f docker-compose.local.yml exec -T backend npx medusa user -e ci@test.local -p CiTestPassword123!
@@ -223,6 +237,25 @@ jobs:
             sleep 5
           done
           echo "Storefront never became healthy" && exit 1
+
+      # `backend` has `env_file: [.env]` in docker-compose.yml, so it loads the
+      # whole file, not just the vars it lists under `environment:`. The
+      # previous step's `.env` append (publishable/search keys) therefore
+      # changes backend's config hash too — even though that step's `up -d
+      # --build storefront` only targeted storefront, compose silently
+      # recreates backend as a side effect. Playwright then started against a
+      # backend that could still be mid-restart, causing product-data calls to
+      # intermittently return nothing (root-caused on issue #28 after the
+      # PR #34 timeout theory turned out not to be the actual cause).
+      - name: Wait for backend to be healthy (post-storefront-rebuild)
+        run: |
+          for i in $(seq 1 30); do
+            status=$(docker compose -f docker-compose.yml -f docker-compose.local.yml ps backend --format '{{.Status}}')
+            echo "$status"
+            echo "$status" | grep -q healthy && exit 0
+            sleep 5
+          done
+          echo "Backend never became healthy after the storefront rebuild recreated it" && exit 1
 
       - uses: actions/setup-node@v4
         with:

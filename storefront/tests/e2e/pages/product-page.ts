@@ -24,7 +24,13 @@ export class ProductPage {
     // One "product-options" block per variant option (Size, Color, ...) —
     // the storefront gives them all the same testid, so this only asserts
     // the first has rendered rather than requiring a single unique match.
-    await expect(this.container.getByTestId("product-options").first()).toBeVisible()
+    // Some single-variant products still have a single "Title: Default
+    // Title" option and render one product-options block; others may have
+    // none at all. Skip the assertion rather than assume either shape.
+    const options = this.container.getByTestId("product-options")
+    if ((await options.count()) > 0) {
+      await expect(options.first()).toBeVisible()
+    }
   }
 
   async getTitle(): Promise<string> {
@@ -54,6 +60,6 @@ export class ProductPage {
     // that the mutation actually completed, instead of a fixed sleep. The
     // round trip goes through the Server Action, the Medusa API, and the
     // Redis-backed event bus, so give it more than the 5s default.
-    await expect(this.addToCartButton).toBeEnabled({ timeout: 15_000 })
+    await expect(this.addToCartButton).toBeEnabled({ timeout: 10_000 })
   }
 }

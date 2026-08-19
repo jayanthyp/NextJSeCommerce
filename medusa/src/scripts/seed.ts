@@ -890,6 +890,59 @@ export default async function seedDemoData({ container }: ExecArgs) {
             },
           ],
         },
+        {
+          // The only genuinely single-variant product in this catalog —
+          // every other product above has real Size/Color options. Added
+          // for issue #35's quick-add-to-cart feature, which is
+          // deliberately scoped to single-variant products only: without
+          // this, isSingleVariant (product.variants?.length === 1) is
+          // false for every seeded product and the quick-add button can
+          // never be exercised by an E2E test against this catalog.
+          title: "Medusa Sticker Pack",
+          category_ids: [
+            categoryResult.find((cat) => cat.name === "Merch")!.id,
+          ],
+          description:
+            "A pack of Medusa logo stickers for your laptop, water bottle, or notebook. One size fits all.",
+          handle: "sticker-pack",
+          weight: 50,
+          status: ProductStatus.PUBLISHED,
+          shipping_profile_id: shippingProfile.id,
+          // No sticker-specific photo exists in the shared demo asset bucket
+          // (only tee/sweatshirt/sweatpants/shorts shots) -- reusing one of
+          // those would show the wrong product, so this falls back to
+          // Thumbnail's placeholder image instead of misrepresenting it.
+          options: [
+            {
+              title: "Title",
+              values: ["Default Title"],
+            },
+          ],
+          variants: [
+            {
+              title: "Default Title",
+              sku: "STICKER-PACK",
+              options: {
+                Title: "Default Title",
+              },
+              prices: [
+                {
+                  amount: 5,
+                  currency_code: "eur",
+                },
+                {
+                  amount: 7,
+                  currency_code: "usd",
+                },
+              ],
+            },
+          ],
+          sales_channels: [
+            {
+              id: defaultSalesChannel[0].id,
+            },
+          ],
+        },
       ],
     },
   });
@@ -897,10 +950,24 @@ export default async function seedDemoData({ container }: ExecArgs) {
 
   logger.info("Seeding inventory levels.");
 
-  const { data: inventoryItems } = await query.graph({
-    entity: "inventory_item",
-    fields: ["id"],
-  });
+  // query.graph defaults to a paginated result (take: 20). The original demo
+  // catalog happened to have exactly 20 variants/inventory items, so this
+  // silently worked; adding the 5th product's variant (21 total) was enough
+  // to drop it from a single unpaginated call and leave it with zero stock.
+  // Page through in bounded batches rather than raising `take` to an
+  // arbitrary large number (a genuinely unbounded query as the catalog
+  // grows) -- this stays a fixed-size request either way.
+  const INVENTORY_PAGE_SIZE = 100;
+  const inventoryItems: { id: string }[] = [];
+  for (let skip = 0; ; skip += INVENTORY_PAGE_SIZE) {
+    const { data: page } = await query.graph({
+      entity: "inventory_item",
+      fields: ["id"],
+      pagination: { skip, take: INVENTORY_PAGE_SIZE },
+    });
+    inventoryItems.push(...page);
+    if (page.length < INVENTORY_PAGE_SIZE) break;
+  }
 
   const inventoryLevels: CreateInventoryLevelInput[] = [];
   for (const inventoryItem of inventoryItems) {

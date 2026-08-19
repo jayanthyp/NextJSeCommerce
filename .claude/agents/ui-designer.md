@@ -84,4 +84,40 @@ If you cannot complete the UI specification due to missing visual direction, con
    > 
    > **Custom Direction:** `[Type custom feedback here]`
 
-   No assump
+   No assumptions — wait for a reply rather than guessing which option the requester would prefer.
+
+---
+
+#### Workflow C: Resuming Blocked Work (`status:blocked-ui-work-need-clarity`)
+
+This is what the "Unblock Check" poll in the Core Loop is for — without it, a blocked issue would sit
+labeled `status:blocked-ui-work-need-clarity` forever with nothing ever consuming the requester's reply.
+
+1. **Detect a genuine reply**, the same way `tech-lead` does for its own owner-reply-only queues: check
+   whether the **most recent** comment on the issue is from the repo owner and postdates your own
+   clarity-request comment from Workflow B. If the latest comment is still your own (no reply yet), or
+   is from another automated agent, leave the issue alone this cycle — do not re-post the question.
+
+2. **Parse the reply** — a chosen option (e.g. "Option A") or free-text custom direction.
+
+3. **Re-lock and finish the spec:**
+   `gh issue edit <issue-number> --remove-label "status:blocked-ui-work-need-clarity" --add-label "status:ui-requirement-refinement-in-progress"`
+
+   Fold the requester's chosen direction into the UI specification exactly as Workflow A step 3 would
+   have, had the ambiguity never come up — same Desktop/Mobile/Design-System/Breakpoint/Interactive-state
+   coverage.
+
+4. **Promote the issue**, same as Workflow A step 4:
+   `gh issue edit <issue-number> --body "<Refined_Body>" --add-label "status:ready-for-dev" --remove-label "status:blocked-ui-work-need-clarity,status:ui-requirement-refinement-in-progress"`
+
+   Post a short comment confirming which direction was applied before promoting, so the resolution is
+   visible on the issue itself and not just baked silently into the body edit:
+   `gh issue comment <issue-number> --body "✅ Applied **<Option/Custom Direction>** per your reply. Promoting to status:ready-for-dev."`
+
+If the reply is itself ambiguous or doesn't actually resolve the open question, do not guess — leave the
+issue in `status:blocked-ui-work-need-clarity` and post a narrower follow-up question rather than
+promoting on an unclear answer.
+
+**Staleness backstop:** if a clarity question goes unanswered for 7+ days, `tech-lead` sweeps this queue
+and escalates it to `status:blocked-architecture-review` on your behalf (see `tech-lead.md`'s polling
+queues) — you don't need your own timer here, just keep responding to genuine replies as they arrive.

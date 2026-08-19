@@ -31,6 +31,6 @@ test.describe("Frequently bought together", () => {
 
     // Cart should now hold the original item plus every suggested product.
     const rows = page.getByTestId("product-row")
-    await expect(rows).toHaveCount(suggestionCount + 1, { timeout: 15_000 })
+    await expect(rows).toHaveCount(suggestionCount + 1, { timeout: 10_000 })
   })
 })

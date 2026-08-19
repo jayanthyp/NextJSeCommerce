@@ -15,7 +15,10 @@ on:
       - "docker-compose.yml"
       - "Caddyfile"
       - "scripts/deploy.sh"
-      - ".github/workflows/deploy-vps.yml"
+      # NOT .github/workflows/deploy-vps.yml: that file only configures the CI
+      # deploy itself, it's never deployed to the VPS, so editing it must not
+      # trigger a deploy (a deploy fired by a workflow edit would then queue
+      # behind — or cancel — the SDLC pipeline's own PR-branch deploy).
   workflow_dispatch: {}
 
 concurrency:
@@ -129,10 +132,10 @@ jobs:
   # possible in GitHub Actions, so this is how backend-tests/storefront-unit
   # block a production deploy. See test.yml for what actually runs.
   #
-  # storefront-e2e (Playwright) also runs as part of this call, but
-  # deliberately does NOT gate `deploy` below — see that job's condition.
-  # It still runs on every push/PR (test.yml's own triggers) so failures
-  # stay visible; deploy just doesn't wait on it.
+  # storefront-e2e (Playwright) is disabled in CI (see test.yml's `if: false`
+  # on that job, per owner decision 2026-08-10), so it neither runs as part of
+  # this call nor gates `deploy`. Playwright e2e now runs via the
+  # quality-analyst agent against each PR's branch in an isolated local stack.
   test:
     uses: ./.github/workflows/test.yml
 
@@ -140,10 +143,10 @@ jobs:
     needs: [build-backend, build-storefront, test]
     # Proceed as long as neither build actually FAILED — a job that was
     # correctly skipped (nothing relevant changed) shouldn't block deploying
-    # the other one that did. Of `test`'s three sub-jobs, only backend-tests
-    # and storefront-unit have to pass — storefront-e2e is checked via
-    # `always()` + explicit per-job outputs (not `needs.test.result`)
-    # specifically so a red e2e run alone doesn't block deploy.
+    # the other one that did. Of `test`'s sub-jobs, only backend-tests and
+    # storefront-unit have to pass — storefront-e2e is disabled (see test.yml),
+    # so the gate relies on `always()` + explicit per-job outputs (not
+    # `needs.test.result`) for backend-tests/storefront-unit only.
     if: |
       always() && !cancelled() &&
       (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
@@ -190,3 +193,31 @@ jobs:
             sync_env_secret GOOGLE_CLIENT_SECRET "$GOOGLE_CLIENT_SECRET"
             sync_env_secret MAILERLITE_API_KEY "$MAILERLITE_API_KEY"
             ./scripts/deploy.sh
+
+      # deploy.sh does `docker compose pull && up -d` and returns as soon as the
+      # containers are scheduled — not when they're actually serving. Without
+      # this wait, a storefront/backend still booting (or mid-restart) answers
+      # 503, which the SDLC pipeline's post-deploy smoke test then reads as a
+      # failed deploy. Poll the live endpoints until both respond.
+      - name: Wait for the VPS to become healthy
+        run: |
+          base_url="${{ vars.NEXT_PUBLIC_BASE_URL }}"
+          backend_url="${{ vars.NEXT_PUBLIC_MEDUSA_BACKEND_URL }}"
+          backend_url="${backend_url%/}"
+          for i in $(seq 1 36); do
+            # Probe the storefront's /api/health, NOT its root. The root sits
+            # behind middleware.ts's region redirect (/ -> /au), which issues a
+            # 307 expecting a _medusa_cache_id cookie; a cookie-less curl -L
+            # follows it forever and fails "too many redirects" even when the
+            # server is healthy. /api/* is excluded from that middleware, so
+            # this path returns 200 directly (see storefront/src/app/api/health).
+            if curl -fsSL -o /dev/null --max-time 10 "${base_url}/api/health" 2>/dev/null && \
+               curl -fsSL -o /dev/null --max-time 10 "${backend_url}/health" 2>/dev/null; then
+              echo "VPS healthy after ~$((i * 10))s"
+              exit 0
+            fi
+            echo "waiting for VPS health (attempt $i/36)..."
+            sleep 10
+          done
+          echo "VPS never became healthy within 6 minutes" >&2
+          exit 1

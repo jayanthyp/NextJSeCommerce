@@ -1,0 +1,110 @@
+#!/usr/bin/env node
+/**
+ * Entry point invoked by .github/workflows/langgraph-agent.yml on every
+ * issues/issue_comment webhook: `npx tsx scripts/trigger.ts --issue <n>
+ * --event <event_name> --action <action>`.
+ *
+ * Deliberately does NOT trust the triggering event's label/comment payload
+ * for routing — it re-fetches the issue's live labels via `gh issue view`
+ * and lets graph.ts's conditional edges route from that, per the "GitHub is
+ * the source of truth" state model (see state.ts / the migration plan).
+ * --event/--action are accepted for logging only.
+ */
+import { graph } from "../src/agents/graph.js";
+import { ghIssueView, ghIssueEdit, ghIssueComment } from "../src/agents/tools.js";
+
+function parseArgs(argv: string[]): { issue: number; event: string; action: string; label?: string } {
+  const get = (flag: string) => {
+    const i = argv.indexOf(flag);
+    return i === -1 ? undefined : argv[i + 1];
+  };
+  const issueRaw = get("--issue");
+  if (!issueRaw) throw new Error("Usage: trigger.ts --issue <n> [--event <name>] [--action <action>] [--label <name>]");
+  return {
+    issue: Number(issueRaw),
+    event: get("--event") ?? "unknown",
+    action: get("--action") ?? "unknown",
+    label: get("--label") ?? undefined,
+  };
+}
+
+async function main(): Promise<void> {
+  const { issue, event, action, label } = parseArgs(process.argv.slice(2));
+  console.log(`[trigger] issue=#${issue} event=${event} action=${action} label=${label ?? "(none)"} — fetching live label state`);
+
+  // A `labeled` event fires once per label applied, so creating an issue with
+  // `bug` + `status:ready-for-ui-work` emits two labeled webhooks. Only the
+  // `status:*` label is a routing signal; the others (`bug`, `priority:*`,
+  // etc.) must not spawn a second graph run that races the first. Routing is
+  // still derived from the live labels below, never from this arg.
+  if (event === "issues" && action === "labeled" && label && !label.startsWith("status:")) {
+    console.log(`[trigger] labeled "${label}" is not a status:* label — nothing to route, exiting cleanly`);
+    return;
+  }
+
+  const ghIssue = await ghIssueView(issue);
+  const statusLabel = ghIssue.labels.map((l) => l.name).find((n) => n.startsWith("status:"));
+  if (!statusLabel) {
+    console.log(`[trigger] issue #${issue} has no status:* label — nothing to route, exiting cleanly`);
+    return;
+  }
+
+  console.log(`[trigger] routing on currentLabel=${statusLabel}`);
+  try {
+    const result = await graph.invoke(
+      { issueNumber: issue, currentLabel: statusLabel },
+      { configurable: { thread_id: String(issue) } }
+    );
+    console.log(`[trigger] run complete. Final currentLabel=${result.currentLabel}`);
+  } catch (err) {
+    // An uncaught error here previously just logged to the Actions console —
+    // the issue was left in whatever transient label it was mid-run, with no
+    // signal on GitHub at all. recover-stuck-issues.ts's 45m cron sweep would
+    // eventually retry the same node against the same input, which loops
+    // forever for a genuine bug rather than a transient flake. Escalate to
+    // tech-lead immediately instead: same status:blocked path every other
+    // block already goes through, so tech-lead's existing audit reads the
+    // crash like any other blocking comment and gives real direction.
+    await escalateCrashToTechLead(issue, statusLabel, err);
+    throw err; // still exit non-zero — keep the Actions run red for humans watching it
+  }
+}
+
+async function escalateCrashToTechLead(issue: number, failedLabel: string, err: unknown): Promise<void> {
+  const detail = (err instanceof Error ? err.stack ?? err.message : String(err)).slice(0, 1500);
+  console.error(`[trigger] graph run crashed on issue #${issue} (was in ${failedLabel}):`, err);
+
+  if (failedLabel.startsWith("status:blocked")) {
+    // Already tech-lead-owned (the crash may even be inside tech-lead's own
+    // workflow) — relabeling here would fight tech-lead's own routing and
+    // risks a crash-escalation loop. Just leave a trail for the next pass.
+    await ghIssueComment(issue, `⚠️ **Workflow crash** while processing this issue (already in \`${failedLabel}\`):\n\`\`\`\n${detail}\n\`\`\``);
+    return;
+  }
+
+  await ghIssueComment(
+    issue,
+    `⚠️ **Workflow crash** — the graph run threw an uncaught error while this issue was in \`${failedLabel}\`. Escalating to tech-lead instead of leaving it stuck.\n\`\`\`\n${detail}\n\`\`\``
+  );
+  await ghIssueEdit(issue, { addLabel: "status:blocked", removeLabel: failedLabel });
+
+  try {
+    // In-process re-entry, same reason as graph.ts's routeAfterTechLead etc.:
+    // GITHUB_TOKEN's own label edit above won't re-trigger the workflow.
+    await graph.invoke(
+      { issueNumber: issue, currentLabel: "status:blocked" },
+      { configurable: { thread_id: String(issue) } }
+    );
+  } catch (techLeadErr) {
+    console.error(`[trigger] tech-lead crash-escalation review itself failed for issue #${issue}:`, techLeadErr);
+    await ghIssueComment(
+      issue,
+      `🛑 Tech-lead's own crash-escalation review also failed:\n\`\`\`\n${techLeadErr instanceof Error ? techLeadErr.message : String(techLeadErr)}\n\`\`\`\nThis needs a human look.`
+    );
+  }
+}
+
+main().catch((err) => {
+  console.error("[trigger] unhandled error:", err);
+  process.exitCode = 1;
+});

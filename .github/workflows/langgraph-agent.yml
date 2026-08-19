@@ -1,0 +1,213 @@
+name: LangGraph Agentic SDLC Trigger
+
+on:
+  issues:
+    # `opened` is deliberately omitted. Creating an issue with labels fires
+    # `opened` PLUS one `labeled` per label (e.g. `bug` + `status:ready-for-ui-work`
+    # -> 3 webhook events -> 3 concurrent graph runs all racing on the same
+    # issue). trigger.ts re-derives routing from the live `status:*` label, and
+    # the status label's own `labeled` event already fires at creation, so
+    # `opened` is a pure duplicate. Non-status `labeled` events (e.g. `bug`) are
+    # ignored inside trigger.ts via --label.
+    types: [labeled]
+  issue_comment:
+    types: [created]
+  workflow_run:
+    # Re-invokes the graph the moment a PR's CI finishes, instead of leaving
+    # tech-lead's audit to wait for the next human comment or the 30-minute
+    # cron sweep. Before this trigger, PRs #142/#144/#146 all sat fully
+    # CI-green in `status:in-review` for extended stretches with nothing to
+    # wake tech-lead up — `status:in-review` is a legitimate steady wait
+    # state, not a "transient" label recover-stuck-issues.ts's RECOVERY map
+    # covers, so only a human posting a manual nudge comment ever re-fired
+    # the workflow. "Test" is test.yml's `name:` — every PR push runs it via
+    # `pull_request`, so its completion is the actual "CI just went
+    # green/red" signal for a linked issue's tech-lead audit.
+    workflows: ["Test"]
+    types: [completed]
+  schedule:
+    # Stuck-issue recovery: relabel issues orphaned in a transient label and
+    # re-run their node (see scripts/recover-stuck-issues.ts), plus
+    # closed-issue reconciliation (see scripts/reconcile-closed-issues.ts).
+    # Off the :00/:30 marks; every 30 minutes.
+    - cron: '7,37 * * * *'
+
+# GITHUB_TOKEN's default permissions can be read-only depending on repo/org
+# settings, which would silently 403 on `gh issue edit`/`gh pr create` inside
+# trigger.ts. Every node except tech-lead's approve/merge/rollback acts under
+# this token (via GH_TOKEN below), so it needs write access to all three.
+# `actions: write` additionally lets tech-lead's deploy step dispatch
+# deploy-vps.yml (`gh workflow run`) — without it that call 403s with
+# "Resource not accessible by integration".
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+jobs:
+  run-langgraph-agent:
+    # Guardrail: Prevent infinite execution loops by ignoring comments/actions made by bot accounts
+    if: ${{ !github.event.comment.user.login || !endsWith(github.event.comment.user.login, '[bot]') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # A `labeled` event fires once per label applied at issue creation (see
+      # the `on.issues` comment above) — only the `status:*` one is routable,
+      # the rest (`bug`, `priority:*`, ...) are pure no-ops in trigger.ts. That
+      # filter used to live only inside trigger.ts, which meant every one of
+      # those no-op runs still paid for `npm ci` x3 + Playwright browser
+      # install (~1-2 CI minutes) before reaching the cheap check. Mirror the
+      # same filter here, before any setup step, so non-status `labeled`
+      # events short-circuit in seconds instead.
+      - name: Check if this event needs the full setup
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "issues" ] && [ "${{ github.event.action }}" = "labeled" ]; then
+            LABEL="${{ github.event.label.name }}"
+            case "$LABEL" in
+              status:*) echo "should_run=true" >> "$GITHUB_OUTPUT" ;;
+              *)
+                echo "[gate] labeled \"$LABEL\" is not a status:* label — nothing to route, skipping setup"
+                echo "should_run=false" >> "$GITHUB_OUTPUT"
+                ;;
+            esac
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            # "Test" also runs on push-to-main (post-merge) and other branches
+            # with no open PR at all — only a pull_request-triggered run maps
+            # to a linked issue worth waking tech-lead up for.
+            if [ "${{ github.event.workflow_run.event }}" != "pull_request" ]; then
+              echo "[gate] workflow_run not from a pull_request (was: ${{ github.event.workflow_run.event }}) — skipping"
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+            else
+              BRANCH="${{ github.event.workflow_run.head_branch }}"
+              ISSUE=$(gh pr list --repo jayanthyp/NextJSeCommerce --head "$BRANCH" --state open --json body \
+                --jq '.[0].body // ""' | grep -oE 'Closes #[0-9]+' | grep -oE '[0-9]+' | head -1 || true)
+              if [ -z "$ISSUE" ]; then
+                echo "[gate] no open PR with a linked issue for branch $BRANCH — skipping"
+                echo "should_run=false" >> "$GITHUB_OUTPUT"
+              else
+                echo "[gate] workflow_run for branch $BRANCH resolves to issue #$ISSUE"
+                echo "should_run=true" >> "$GITHUB_OUTPUT"
+                echo "resolved_issue=$ISSUE" >> "$GITHUB_OUTPUT"
+              fi
+            fi
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js Environment
+        if: steps.gate.outputs.should_run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        if: steps.gate.outputs.should_run == 'true'
+        run: npm ci
+
+      # devLoopNode runs `npm run test:unit` in both workspaces, so their
+      # dependencies must be installed too (root `npm ci` only covers the
+      # LangGraph orchestrator project itself).
+      - name: Install Storefront Dependencies
+        if: steps.gate.outputs.should_run == 'true'
+        run: npm ci
+        working-directory: storefront
+
+      - name: Install Medusa Dependencies
+        if: steps.gate.outputs.should_run == 'true'
+        run: npm ci
+        working-directory: medusa
+
+      - name: Install Playwright Browsers (for QA Node)
+        if: steps.gate.outputs.should_run == 'true'
+        run: npx playwright install --with-deps chromium
+
+      # devLoopNode runs `git commit` / `git push`; the runner has no git
+      # identity by default, which fails with "Author identity unknown".
+      - name: Configure Git Identity
+        if: steps.gate.outputs.should_run == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Execute LangGraph Orchestrator
+        if: steps.gate.outputs.should_run == 'true'
+        env:
+          # Model Provider — Claude by default, DeepSeek when Anthropic credit
+          # is exhausted. To use DeepSeek, set these three secrets together:
+          #   ANTHROPIC_API_KEY   = DeepSeek API key
+          #   ANTHROPIC_BASE_URL  = https://api.deepseek.com/anthropic
+          #   ANTHROPIC_MODEL     = deepseek-v4-pro  (NOT [1m] — thinking mode breaks tool calls)
+          # (see src/agents/nodes.ts getLlm()). Leave ANTHROPIC_BASE_URL empty
+          # to fall back to the Anthropic API with an Anthropic key.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+
+          # GitHub API Access
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # Separate tech-lead bot identity — required by
+          # scripts/tech-lead-approve.sh/-merge.sh/-rollback-revert.sh
+          # (techLeadNode). Must be a DIFFERENT account than GITHUB_TOKEN's
+          # github-actions[bot] identity: every other node's actions (PR
+          # creation, issue comments) post as github-actions[bot], and GitHub
+          # refuses to let an account approve its own PR. Same one-time bot
+          # setup CLAUDE.md's "Tech-lead bot identity setup" section
+          # documents for the .claude/agents/tech-lead.md agent — reuse that
+          # secret here, no new setup needed if it's already configured.
+          TECH_LEAD_GH_TOKEN: ${{ secrets.TECH_LEAD_GH_TOKEN }}
+
+          # LangSmith Observability & Tracing Configuration
+          LANGCHAIN_TRACING_V2: "true"
+          LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_PROJECT: "e-commerce-sdlc"
+          LANGCHAIN_ENDPOINT: "https://api.smith.langchain.com"
+
+          # Post-deploy smoke-test targets (production VPS endpoints) — the
+          # storefront + API domains techLeadNode pings before merging. SMOKE_*
+          # (not NEXT_PUBLIC_*): NEXT_PUBLIC_BASE_URL is the storefront's own
+          # build-time var, and the graph runs dev_loop's unit tests as a child
+          # of this process, so reusing that name leaks the production URL into
+          # those tests and breaks their localhost assertions.
+          SMOKE_BASE_URL: "https://structuracrafts.store"
+          SMOKE_MEDUSA_BACKEND_URL: "https://api.structuracrafts.store"
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "♻️ Running stuck-issue recovery (schedule trigger)"
+            npx tsx scripts/recover-stuck-issues.ts
+            echo "🧹 Running closed-issue reconciliation (schedule trigger)"
+            npx tsx scripts/reconcile-closed-issues.ts
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            ISSUE_NUMBER="${{ steps.gate.outputs.resolved_issue }}"
+            echo "🚀 CI completed for issue #${ISSUE_NUMBER}'s PR — triggering LangGraph..."
+            npx tsx scripts/trigger.ts \
+              --issue "${ISSUE_NUMBER}" \
+              --event workflow_run \
+              --action completed
+            exit 0
+          fi
+
+          # Extract issue number based on event type
+          ISSUE_NUMBER="${{ github.event.issue.number }}"
+
+          echo "🚀 Triggering LangGraph for Issue #${ISSUE_NUMBER}..."
+
+          # Execute the TypeScript trigger script passing the GitHub event context
+          npx tsx scripts/trigger.ts \
+            --issue "${ISSUE_NUMBER}" \
+            --event "${{ github.event_name }}" \
+            --action "${{ github.event.action }}" \
+            --label "${{ github.event.label.name }}"

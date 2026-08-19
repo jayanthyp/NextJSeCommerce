@@ -12,12 +12,16 @@ export default defineConfig({
 
   fullyParallel: false, // every test drives one shared cart/session flow
   forbidOnly: !!process.env.CI,
-  // One retry even outside CI: continuous trace/video capture adds real
-  // per-action overhead (observed pushing a normally ~2s Server Action past
-  // 15s on this machine), and a single retry absorbs that without masking a
-  // genuinely broken flow — a real bug fails both attempts.
-  retries: process.env.CI ? 2 : 1,
-  workers: 1,
+  // One retry absorbs trace/video overhead and transient flakiness without
+  // masking a genuinely broken flow — a real bug fails both attempts. Was 2 in
+  // CI; dropped to 1 because the isolated QA stack is deterministic enough and
+  // 2 retries tripled the wall-clock of a failing run (each failing test ran
+  // 3x against its timeout).
+  retries: 1,
+  // Parallelize across spec files. `fullyParallel: false` only serializes
+  // tests *within* a file (they share a cart/session); the specs themselves use
+  // unique-per-run customer/account stamps, so cross-file workers are safe.
+  workers: 4,
 
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "html",
 

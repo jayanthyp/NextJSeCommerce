@@ -41,7 +41,7 @@ export class AuthPage {
     // breakpoint (see overview/index.tsx), so a visibility check on either
     // would fail depending on viewport.
     await expect(this.page.getByTestId("mobile-account-nav")).toBeAttached({
-      timeout: 15_000,
+      timeout: 10_000,
     })
   }
 }
