@@ -8,6 +8,7 @@ import Thumbnail from "../thumbnail"
 import PreviewPrice, { DiscountBadge } from "./price"
 import WishlistQuickAction from "./wishlist-quick-action"
 import QuickAddButton from "./quick-add-button"
+import WishlistButton from "./wishlist-button"
 
 export default async function ProductPreview({
   product,
@@ -56,11 +57,12 @@ export default async function ProductPreview({
   return (
     <LocalizedClientLink href={`/products/${product.handle}`} className="group">
       <div data-testid="product-wrapper">
-        <Thumbnail
-          thumbnail={product.thumbnail}
-          images={product.images}
-          size="full"
-          isFeatured={isFeatured}
+        <div className="relative">
+          <Thumbnail
+            thumbnail={product.thumbnail}
+            images={product.images}
+            size="full"
+            isFeatured={isFeatured}
           badges={
             showDiscountBadge || isBestseller ? (
               <>
@@ -95,6 +97,8 @@ export default async function ProductPreview({
             ) : undefined
           }
         />
+          <WishlistButton productId={product.id!} />
+        </div>
         <div className="flex txt-compact-medium mt-4 justify-between">
           <Text className="text-ui-fg-subtle" data-testid="product-title">
             {product.title}
