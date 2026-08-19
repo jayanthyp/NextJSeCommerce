@@ -5,6 +5,7 @@ import { Text, clx } from "@medusajs/ui"
 
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
 import MedusaCTA from "@modules/layout/components/medusa-cta"
+import NewsletterSignup from "@modules/layout/components/newsletter-signup"
 import { SITE_NAME } from "@lib/constants"
 
 export default async function Footer() {
@@ -215,6 +216,9 @@ export default async function Footer() {
                 </ul>
               </div>
             )}
+            <div className="col-span-2 sm:col-span-1">
+              <NewsletterSignup />
+            </div>
           </div>
         </div>
         <div className="flex w-full mb-16 justify-between text-ui-fg-muted">
