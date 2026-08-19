@@ -20,6 +20,7 @@ import {
   ghIssueComment,
   ghIssueCreate,
   ghPrList,
+  ghPrListClosingIssue,
   ghPrDiff,
   ghPrFiles,
   ghPrChecks,
@@ -52,6 +53,7 @@ import {
   dockerComposeRebuildStorefront,
   formatBlockingComment,
   formatQaReport,
+  runHealthChecks,
 } from "./tools.js";
 
 const MAX_DEV_LOOP_ATTEMPTS = 5;
@@ -338,6 +340,20 @@ const CodeChangesSchema = z.object({
  * cold-start prompt, which is what let issue #129 repeatedly reproduce the
  * exact same "missing REPRODUCTION TEST" failure across attempts.
  */
+/**
+ * Infra/CI-only surfaces with no meaningful test path under storefront/src
+ * or medusa/src — a fix here can't produce a *.test.ts/*.spec.ts that fails
+ * on unfixed code no matter how correct the fix is (issues #141/#142 both
+ * tripped the dev_loop<->tech_lead circuit breaker for exactly this reason
+ * before this exemption existed).
+ */
+const WORKFLOW_ONLY_RE = /^(\.github\/workflows\/.*\.ya?ml|scripts\/.*\.sh)$/;
+
+/** True when every changed path is infra/CI-only (see WORKFLOW_ONLY_RE) — used to exempt the reproduction-test requirement below. */
+function isWorkflowOnlyChange(changes: { path: string }[]): boolean {
+  return changes.length > 0 && changes.every((c) => WORKFLOW_ONLY_RE.test(c.path));
+}
+
 function codeChangesSchemaFor(isBug: boolean) {
   if (!isBug) return CodeChangesSchema;
   return CodeChangesSchema.superRefine((data, ctx) => {
@@ -349,12 +365,12 @@ function codeChangesSchemaFor(isBug: boolean) {
           "Bug fixes must set `rootCause`: one sentence naming the actual mechanism behind the symptom, before writing the fix.",
       });
     }
-    if (!data.changes.some((c) => TEST_FILE_RE.test(c.path))) {
+    if (!isWorkflowOnlyChange(data.changes) && !data.changes.some((c) => TEST_FILE_RE.test(c.path))) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["changes"],
         message:
-          "Bug fixes must include a reproduction test in `changes`: a NEW `*.test.tsx`/`*.test.ts`/`*.spec.ts` file (under `storefront/src/` for a frontend root cause, or `medusa/src/` for a backend/config root cause) that fails on the current code.",
+          "Bug fixes must include a reproduction test in `changes`: a NEW `*.test.tsx`/`*.test.ts`/`*.spec.ts` file (under `storefront/src/` for a frontend root cause, or `medusa/src/` for a backend/config root cause) that fails on the current code. (Exempt only when EVERY changed path is infra/CI-only — `.github/workflows/*.yml` or `scripts/*.sh` — since those have no test surface in either directory.)",
       });
     }
   });
@@ -754,7 +770,7 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
   // Re-entry check (dev-loop.md step 2): an existing open PR means this is a
   // resumed/re-entered issue (e.g. tech-lead handed a resolved status:blocked
   // issue back), not fresh work.
-  const existingPrs = (await ghPrList(`Closes #${state.issueNumber} in:body`, "number,headRefName")) as {
+  const existingPrs = (await ghPrListClosingIssue(state.issueNumber,"number,headRefName")) as {
     number: number;
     headRefName: string;
   }[];
@@ -839,6 +855,7 @@ export async function devLoopNode(state: AgenticSdlcStateType): Promise<Partial<
     ? `BUG-FIX REQUIREMENTS (this issue is a bug):
 - ROOT CAUSE FIRST — set \`rootCause\` to the actual mechanism behind the symptom (e.g. a controlled input whose \`value\` never updates, an overlay intercepting pointer events). Name it before writing the fix.
 - REPRODUCTION TEST — the \`changes\` array MUST contain BOTH: (a) a NEW unit test file (\`*.test.tsx\`/\`*.test.ts\`/\`*.spec.ts\`) that reproduces the bug, and (b) the minimal code change that makes that test pass. Put the test in the SAME LAYER as the root cause, not always the frontend: if \`rootCause\` points at storefront UI code, add a \`*.test.tsx\` under \`storefront/src/\` next to the component using real interaction (\`userEvent.type\`/\`click\`, never Playwright \`fill()\`), importing \`@testing-library/react\`, \`@testing-library/user-event\`, and \`@testing-library/jest-dom\`. If \`rootCause\` points at Medusa backend/config code (e.g. \`medusa-config.ts\`, a service, a workflow), add a \`*.test.ts\`/\`*.spec.ts\` under \`medusa/src/\` that imports and asserts on that backend code directly — do NOT write a frontend component test for a backend bug; it cannot fail on unfixed backend code and will not reproduce anything.
+  EXCEPTION: if the fix is ENTIRELY infra/CI-only (every changed path is under \`.github/workflows/\` or \`scripts/\`, e.g. a \`.yml\` or \`.sh\` file), skip the reproduction test — there is no test surface for that in either directory. \`rootCause\` is still required.
 
 `
     : "";
@@ -1035,7 +1052,7 @@ export async function qualityAnalystNode(state: AgenticSdlcStateType): Promise<P
   // Drives the dev↔QA autonomous-retry bound: incremented on every QA run,
   // read by routeAfterQualityAnalyst (via the label) to decide retry vs escalate.
   const qaAttemptCount = (state.qaAttemptCount ?? 0) + 1;
-  const prs = (await ghPrList(`Closes #${state.issueNumber} in:body`, "number,headRefName,url")) as {
+  const prs = (await ghPrListClosingIssue(state.issueNumber,"number,headRefName,url")) as {
     number: number;
     headRefName: string;
     url: string;
@@ -1323,13 +1340,54 @@ async function auditPr(diff: string): Promise<z.infer<typeof AuditVerdictSchema>
   ]);
 }
 
+/**
+ * Cap on consecutive status:blocked-architecture-review rounds per issue —
+ * the escalation-cycle counterpart to handoverCount/MAX_HANDOVERS. Unlike
+ * that in-process counter, this one can't live in LangGraph state: each
+ * escalation round is a genuinely separate graph run (a fresh process per
+ * GitHub Actions job triggered by the owner's reply — see
+ * ownerReplyWorkflow's comment on why there's no persisted checkpoint
+ * across runs), so MemorySaver never survives between rounds. GitHub's own
+ * comment history is the only durable record, so the count comes from
+ * there instead of an Annotation field.
+ */
+const MAX_ARCHITECTURE_ESCALATIONS = 3;
+
+/**
+ * Matches this workflow's own two escalation comment headers so re-runs can
+ * count how many times this issue has already been escalated. Deliberately
+ * does NOT match "🛑 Circuit Breaker Tripped" — that comment is what HALTS
+ * escalation (see the check above), so it must never itself count toward
+ * the cap that triggers it.
+ */
+function countArchitectureEscalations(comments: { body: string }[]): number {
+  return comments.filter(
+    (c) => c.body.startsWith("🛑 No-Op Diff Rejected") || c.body.startsWith("🛑 **Architectural Escalation Required**")
+  ).length;
+}
+
 async function techLeadReviewWorkflow(state: AgenticSdlcStateType): Promise<Partial<AgenticSdlcStateType>> {
   await ghIssueEdit(state.issueNumber, {
     addLabel: "status:tech-lead-review-in-progress",
     removeLabel: "status:in-review",
   });
 
-  const prs = (await ghPrList(`Closes #${state.issueNumber} in:body`, "number,headRefName,url")) as {
+  const priorEscalations = countArchitectureEscalations((await ghIssueView(state.issueNumber)).comments);
+  if (priorEscalations >= MAX_ARCHITECTURE_ESCALATIONS) {
+    console.warn(`[circuit-breaker] issue #${state.issueNumber}: ${priorEscalations} prior architecture escalations — halting instead of re-escalating`);
+    await ghIssueComment(
+      state.issueNumber,
+      formatBlockingComment(
+        `This issue has been escalated to architecture review ${priorEscalations} times already without converging. Halting automatic re-escalation — further findings, however valid, aren't resolving anything without a human decision.`,
+        ["Provide a more specific fix direction", "Confirm this needs a different approach entirely", "Close/deprioritize this issue"],
+        "🛑 **Circuit Breaker Tripped**"
+      )
+    );
+    await ghIssueEdit(state.issueNumber, { addLabel: "status:blocked", removeLabel: "status:tech-lead-review-in-progress" });
+    return { currentLabel: "status:blocked" };
+  }
+
+  const prs = (await ghPrListClosingIssue(state.issueNumber,"number,headRefName,url")) as {
     number: number;
     headRefName: string;
     url: string;
@@ -1515,7 +1573,7 @@ async function runDeployWorkflow(issueNumber: number, prNumber: number, headRefN
 
 async function unblockGenericWorkflow(state: AgenticSdlcStateType): Promise<Partial<AgenticSdlcStateType>> {
   const issue = await ghIssueView(state.issueNumber);
-  const prs = (await ghPrList(`Closes #${state.issueNumber} in:body`, "number,headRefName,url")) as { number: number; url: string }[];
+  const prs = (await ghPrListClosingIssue(state.issueNumber,"number,headRefName,url")) as { number: number; url: string }[];
   const pr = prs[0];
 
   const lastComment = issue.comments[issue.comments.length - 1]?.body ?? "";
@@ -1534,15 +1592,29 @@ async function unblockGenericWorkflow(state: AgenticSdlcStateType): Promise<Part
     return { currentLabel: "status:blocked-architecture-review" };
   }
 
+  // For an ops/infra-shaped bug, a live read of production's own public
+  // endpoints can turn "here are 5 hypotheses to check manually" (#129's
+  // original triage checklist) into a concrete finding, without a human
+  // needing to run it. Read-only, and a no-op when SMOKE_* isn't configured
+  // for this run — see runHealthChecks' own doc comment for why this is
+  // deliberately the full extent of what tech-lead can observe about
+  // production (no VPS/Docker access exists from this runner).
+  const healthChecks = await runHealthChecks();
+  const healthContext = healthChecks.length
+    ? `\n\nLive production health checks (read-only, just run):\n${healthChecks
+        .map((h) => `- ${h.name} (${h.url}): ${h.error ? `ERROR — ${h.error}` : `HTTP ${h.statusCode}`}`)
+        .join("\n")}`
+    : "";
+
   const decision = await extractStructured(
     z.object({ canResolve: z.boolean(), direction: z.string() }),
     [
     {
       role: "system",
       content:
-        "You are the Technical Lead resolving a status:blocked issue. If you can give a clear, concrete technical direction (architectural call, disambiguation, bug-fix direction), set canResolve=true. If it needs a product/business call only a human can make, set canResolve=false. When a finding/direction makes a claim about specific existing code (not the diff itself, which you already have verbatim), cite the exact file path and line range you're relying on, or quote the relevant snippet directly — do not paraphrase code from memory or from the issue's own description of it.",
+        "You are the Technical Lead resolving a status:blocked issue. If you can give a clear, concrete technical direction (architectural call, disambiguation, bug-fix direction), set canResolve=true. If it needs a product/business call only a human can make, set canResolve=false. When a finding/direction makes a claim about specific existing code (not the diff itself, which you already have verbatim), cite the exact file path and line range you're relying on, or quote the relevant snippet directly — do not paraphrase code from memory or from the issue's own description of it. If live health-check results are provided below and show a concrete failure (a non-2xx status or an error), cite that directly as evidence in your direction rather than listing hypotheses.",
     },
-    { role: "user", content: `Issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}\n\nLatest blocking comment:\n${lastComment}` },
+    { role: "user", content: `Issue #${state.issueNumber}: ${issue.title}\n\n${issue.body}\n\nLatest blocking comment:\n${lastComment}${healthContext}` },
   ]);
 
   if (decision.canResolve) {
@@ -1580,7 +1652,7 @@ async function ownerReplyWorkflow(state: AgenticSdlcStateType): Promise<Partial<
     // origin marker (no cross-run state — see plan decision #2), infer from
     // whether an open PR exists: a PR-review FAIL re-enters review; a 2a punt
     // re-enters dev.
-    const prs = (await ghPrList(`Closes #${state.issueNumber} in:body`, "number")) as { number: number }[];
+    const prs = (await ghPrListClosingIssue(state.issueNumber,"number")) as { number: number }[];
     if (prs.length > 0) {
       await ghIssueEdit(state.issueNumber, { addLabel: "status:in-review", removeLabel: "status:blocked-architecture-review" });
       return { currentLabel: "status:in-review" };

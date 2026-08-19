@@ -140,6 +140,25 @@ export async function ghPrList(search: string, fields: string, state: "open" | "
   return JSON.parse(r.stdout) as unknown[];
 }
 
+/**
+ * Finds the PR(s) whose body says "Closes #<issueNumber>". The phrase MUST be
+ * quoted in the search query — GitHub's `in:body` search tokenizes an
+ * unquoted `Closes #29 in:body` into independent terms ("closes", "29"),
+ * matching any PR where those appear anywhere in the body, not the literal
+ * substring. That false-positive matched PR #32 (body says "Closes #30")
+ * against issue #29 purely because "29" appeared elsewhere in its body, and
+ * scripts/reconcile-closed-issues.ts then closed it as orphaned — a real PR
+ * with real pending work. Every caller that needs "the PR for this issue"
+ * must go through this helper, not construct the search string inline.
+ */
+export async function ghPrListClosingIssue(
+  issueNumber: number,
+  fields: string,
+  state: "open" | "all" = "open"
+): Promise<unknown[]> {
+  return ghPrList(`"Closes #${issueNumber}" in:body`, fields, state);
+}
+
 export async function ghPrDiff(prNumber: number): Promise<string> {
   const r = await run("gh", ["pr", "diff", String(prNumber), "--repo", REPO]);
   assertOk(r, `gh pr diff #${prNumber}`);
@@ -187,6 +206,14 @@ export async function ghPrCreate(title: string, body: string, headBranch: string
 
 export async function ghPrComment(prNumber: number, body: string): Promise<void> {
   assertOk(await run("gh", ["pr", "comment", String(prNumber), "--repo", REPO, "--body", body]), `gh pr comment #${prNumber}`);
+}
+
+/** Closes a PR without merging it (e.g. its target issue was already resolved elsewhere) — never used to abandon unreviewed work silently, always paired with an explanatory comment. */
+export async function ghPrClose(prNumber: number, comment: string): Promise<void> {
+  assertOk(
+    await run("gh", ["pr", "close", String(prNumber), "--repo", REPO, "--comment", comment]),
+    `gh pr close #${prNumber}`
+  );
 }
 
 /** Unapproved (non-tech-lead) review comment — never `--approve` from here; that's exclusively runTechLeadApprove below. */
@@ -566,4 +593,61 @@ export function formatQaReport(input: QaReportInput): string {
     lines.push("", "---", "", "#### 🔍 Failure Details", input.failureDetails);
   }
   return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Production health checks (tech-lead's narrow, read-only diagnostic surface)
+//
+// For ops/infra-shaped bugs (e.g. #129's empty search index / stale Caddy
+// config) tech-lead can observe live production state without a human running
+// a checklist. Deliberately narrow and read-only: a plain GET against a fixed
+// set of public endpoints, reusing the SMOKE_BASE_URL/SMOKE_MEDUSA_BACKEND_URL
+// env vars smokeTest() already relies on, same fetch()-based approach (no
+// shelling out to curl — nothing here needs a subprocess).
+//
+// Deliberately NOT included: a MeiliSearch index-stats check via
+// `docker compose exec`. tech-lead runs on a GitHub Actions hosted runner,
+// not on the VPS itself — there is no Docker/production network reachable
+// from there at all (this is exactly why the #129 investigation needed a
+// manual SSH session). A real version of that check would need a dedicated
+// backend API endpoint that internally holds MEILISEARCH_ADMIN_KEY and
+// returns a safe subset (e.g. document count) over the network tech-lead
+// actually has — left as a follow-up, not implemented here.
+// ---------------------------------------------------------------------------
+
+export interface HealthCheckResult {
+  name: string;
+  url: string;
+  statusCode: number | null;
+  error?: string;
+}
+
+/**
+ * Probes SMOKE_BASE_URL's /api/health, SMOKE_MEDUSA_BACKEND_URL's /health,
+ * and (derived from the same backend URL, matching the Caddyfile's
+ * `{$API_DOMAIN}` block) /search/health, reporting status codes. Read-only,
+ * and — like smokeTest() — a no-op (empty result) rather than an error when
+ * those env vars aren't configured for the current run.
+ */
+export async function runHealthChecks(): Promise<HealthCheckResult[]> {
+  const baseUrl = process.env.SMOKE_BASE_URL;
+  const backendUrl = process.env.SMOKE_MEDUSA_BACKEND_URL;
+  if (!baseUrl || !backendUrl) return [];
+
+  const endpoints = [
+    { name: "storefront /api/health", url: `${baseUrl}/api/health` },
+    { name: "backend /health", url: `${backendUrl}/health` },
+    { name: "search /search/health", url: `${backendUrl}/search/health` },
+  ];
+
+  const results: HealthCheckResult[] = [];
+  for (const endpoint of endpoints) {
+    try {
+      const res = await fetch(endpoint.url, { signal: AbortSignal.timeout(10_000) });
+      results.push({ name: endpoint.name, url: endpoint.url, statusCode: res.status });
+    } catch (err) {
+      results.push({ name: endpoint.name, url: endpoint.url, statusCode: null, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return results;
 }
