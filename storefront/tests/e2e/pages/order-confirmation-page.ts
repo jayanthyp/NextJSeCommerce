@@ -23,6 +23,10 @@ export class OrderConfirmationPage {
     await expect(this.page.getByTestId("payment-method")).toContainText(name)
   }
 
+  async expectOrderNote(note: string) {
+    await expect(this.page.getByTestId("order-note")).toContainText(note)
+  }
+
   async expectItemInSummary(productTitle: string) {
     const row = this.page.getByTestId("product-row").filter({
       has: this.page.getByTestId("product-name").filter({ hasText: productTitle }),

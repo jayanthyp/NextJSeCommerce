@@ -102,11 +102,16 @@ human step — none of the automated roles can create a GitHub account.
    not use the account that opens PRs.
 2. Give that account **write/collaborator access** to this repo (or organization membership with write
    scope), so its token can post reviews and merge PRs.
-3. Create a **fine-grained personal access token** for the bot with `Contents: Read and write` and
-   `Pull requests: Read and write` permissions on this repo.
+3. Create a **classic** personal access token for the bot. This must be a *classic* token — a
+   fine-grained token **cannot** be scoped to another user's personal repository (GitHub only lets you
+   scope fine-grained tokens to repos the token's own account owns or to organizations), so the
+   collaborator-on-`jayanthyp/NextJSeCommerce` setup only works with classic scope `repo` (full control
+   of private repositories), which covers both the rollback push (`Contents`) and approve/merge
+   (`Pull requests`). The `repo` scope is all-or-nothing; the blast radius is bounded in practice
+   because the bot has Write on this one repo only.
 4. Export it in the environment where the tech-lead agent runs:
    ```bash
-   export TECH_LEAD_GH_TOKEN=<bot-fine-grained-token>
+   export TECH_LEAD_GH_TOKEN=<bot-classic-token>
    ```
    The wrapper scripts refuse to run if it is unset. Treat it as a secret — never commit it, and never
    let any other agent read or log it.

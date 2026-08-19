@@ -207,6 +207,7 @@ export default function ProductActions({
             isAdding ||
             !isValidVariant
           }
+          data-testid="add-product-button"
           variant="primary"
           className="w-full h-10"
           isLoading={isAdding}

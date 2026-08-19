@@ -5,6 +5,7 @@ import Addresses from "@modules/checkout/components/addresses"
 import Payment from "@modules/checkout/components/payment"
 import Review from "@modules/checkout/components/review"
 import Shipping from "@modules/checkout/components/shipping"
+import OrderNote from "@modules/checkout/components/order-note"
 
 export default async function CheckoutForm({
   cart,
@@ -33,6 +34,8 @@ export default async function CheckoutForm({
       <Payment cart={cart} availablePaymentMethods={paymentMethods} />
 
       <Review cart={cart} />
+
+      <OrderNote cart={cart} />
     </div>
   )
 }

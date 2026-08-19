@@ -13,6 +13,8 @@ const OrderDetails = ({ order, showStatus }: OrderDetailsProps) => {
     return formatted.slice(0, 1).toUpperCase() + formatted.slice(1)
   }
 
+  const orderNote = order.metadata?.order_note as string | undefined
+
   return (
     <div>
       <Text>
@@ -34,6 +36,14 @@ const OrderDetails = ({ order, showStatus }: OrderDetailsProps) => {
       <Text className="mt-2 text-ui-fg-interactive">
         Order number: <span data-testid="order-id">{order.display_id}</span>
       </Text>
+      {orderNote && (
+        <Text className="mt-2">
+          Order note:{" "}
+          <span className="text-ui-fg-subtle" data-testid="order-note">
+            {orderNote}
+          </span>
+        </Text>
+      )}
 
       <div className="flex items-center text-compact-small gap-x-4 mt-4">
         {showStatus && (
