@@ -6,8 +6,8 @@ name: Test
 #
 # storefront-e2e (Playwright) is DISABLED here per owner decision
 # (2026-08-10) — see the `if: false` on that job. Playwright e2e is no longer
-# run in GitHub Actions; the quality-analyst agent runs the Playwright suite
-# against each PR's branch in an isolated local docker-compose stack instead.
+# run in GitHub Actions; the agentic pipeline's E2E stage runs the Playwright
+# suite against each PR's branch in an isolated docker-compose stack instead.
 on:
   push:
     branches: [main]
@@ -22,6 +22,20 @@ on:
         value: ${{ jobs.storefront-unit.result }}
 
 jobs:
+  # The LangGraph orchestrator (root project, src/agents/): typecheck + the
+  # unit tests for its gating logic. Not a deploy gate (it doesn't ship to the VPS).
+  orchestrator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
   backend-tests:
     runs-on: ubuntu-latest
     services:

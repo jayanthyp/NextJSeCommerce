@@ -1,19 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
 #  tech-lead-merge.sh — merge a PR as the tech-lead bot identity, invoked by
-#  .claude/agents/tech-lead.md's Workflow 3, and ONLY after its own gate has
-#  already confirmed: approved + all CI green + VPS deploy succeeded +
-#  post-deploy smoke test passed. This script does not re-check any of that
-#  itself — it is the last, mechanical step once tech-lead has decided to
-#  merge, not a second gate.
+#  the agentic pipeline's Ship stage (src/agents/stages/ship.ts), and ONLY
+#  after its gate has already confirmed: Jev + E2E passed on the head commit,
+#  approved, all CI green, VPS deploy succeeded, post-deploy smoke test
+#  passed. This script does not re-check any of that itself — it is the last,
+#  mechanical step once the Ship stage has decided to merge, not a second gate.
 #
 #  `.claude/settings.json` keeps a hard `deny` on raw `gh pr merge*` / `git
-#  merge*` (mirroring CLAUDE.md's "never merge a PR" rule for every other
-#  agent). This script is the one narrow, allow-listed exception: it always
-#  runs a plain `--merge` with no other flags reachable from the outside, so
-#  the allow rule for *this exact script* can never be walked into
-#  `--admin` (bypasses required reviews/checks) or any other dangerous flag
-#  the way a broad `Bash(gh pr merge*)` allow rule could.
+#  merge*` (mirroring CLAUDE.md's "never merge a PR" rule). This script is
+#  the one narrow exception: it always runs a plain `--merge` with no other
+#  flags reachable from the outside, so it can never be walked into
+#  `--admin` (bypasses required reviews/checks) or any other dangerous flag.
 #
 #  Usage: tech-lead-merge.sh <pr-number>
 # =============================================================================

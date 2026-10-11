@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
 # =============================================================================
 #  tech-lead-approve.sh — post a formal GitHub PR approval as the tech-lead
-#  bot identity, invoked by .claude/agents/tech-lead.md's Workflow 1.
+#  bot identity, invoked by the agentic pipeline's Ship stage
+#  (src/agents/stages/ship.ts) once Jev, E2E and CI have all passed.
 #
 #  GitHub refuses to let an account approve its own PR (addPullRequestReview:
-#  "Can not approve your own pull request") — and every other agent in this
-#  repo (dev-loop, quality-analyst, ui-designer, business-analyst) opens PRs
-#  under the same account this session's `gh` is normally authenticated as.
-#  A real "Approved" review therefore requires a *different* GitHub identity,
-#  which is what TECH_LEAD_GH_TOKEN is: a separate bot account's token, used
-#  only for this one action.
+#  "Can not approve your own pull request") — and every other pipeline stage
+#  opens PRs as github-actions[bot]. A real "Approved" review therefore
+#  requires a *different* GitHub identity, which is what TECH_LEAD_GH_TOKEN
+#  is: a separate bot account's token, used only for this one action.
 #
-#  This script exists (rather than tech-lead.md calling `gh pr review
-#  --approve` directly) so `.claude/settings.json` can allow-list exactly
-#  this invocation shape — no PR-number or body injection can smuggle in
-#  extra `gh` flags the way a raw `Bash(gh pr review *)` allow rule could.
+#  This script exists (rather than calling `gh pr review --approve`
+#  directly) so the only reachable invocation shape is a numeric PR number —
+#  no PR-number or body injection can smuggle in extra `gh` flags.
 #
 #  Usage: tech-lead-approve.sh <pr-number>   (review body piped via stdin)
 # =============================================================================

@@ -433,60 +433,38 @@ oversight: container log-rotation caps (`docker logs` can grow unbounded), UFW
 
 ## Agentic SDLC (LangGraph.js)
 
-The GitHub-Issues-driven SDLC automation (business-analyst / ui-designer /
-dev-loop / quality-analyst / tech-lead) runs as a **LangGraph.js** graph,
-triggered by GitHub issue/label/comment webhooks — not a polling loop. See
-`.github/workflows/langgraph-agent.yml`, `src/agents/`, and `scripts/trigger.ts`.
+GitHub issues are built by a 7-stage **LangGraph.js** pipeline in
+`src/agents/`. It is triggered by issue label/comment webhooks and by CI
+completion (`.github/workflows/langgraph-agent.yml` → `scripts/trigger.ts`),
+not a polling loop. To start one, label an issue `status:ready-for-dev`.
 
-### How it runs in production
+| # | Stage | What happens | Code |
+| --- | --- | --- | --- |
+| 1 | Ingest | claude-mem recalls related issues, decisions and shipped changes | `stages/ingest.ts`, `memory.ts` |
+| 2 | Grill-me | The orchestrator interrogates the issue; open decisions go to the owner as rounds on the issue | `stages/grill.ts` |
+| 3 | Design | agent-skills spec + planning skills → `docs/specs/issue-<n>/spec.md`, hash-locked | `stages/design.ts`, `spec.ts` |
+| 4–5 | Build + PR | Up to 5 parallel subagents (Ponytail + Caveman), each limited to its files; unit tests; PR | `stages/build.ts` |
+| 6 | Review | TypeSafe Jev's typed rubric from the spec, then Playwright E2E | `stages/review.ts`, `jev.ts`, `stages/e2e.ts` |
+| 7 | Ship | shipping-and-launch checklist → approve → deploy → smoke test → merge; memory update | `stages/ship.ts` |
 
-Every `issues: [opened, labeled]` or `issue_comment: [created]` event fires
-`langgraph-agent.yml`, which installs deps, installs Playwright's Chromium
-browser, and runs `npx tsx scripts/trigger.ts --issue <n> --event <name>
---action <action>` on a fresh GitHub-hosted runner. `trigger.ts` re-fetches
-the issue's *live* `status:*` label from GitHub (never trusting the webhook
-payload — see `src/agents/state.ts`'s doc comment) and invokes the compiled
-graph, which routes to the matching node (`ui_designer` / `dev_loop` /
-`quality_analyst` / `tech_lead`) via `src/agents/graph.ts`'s conditional
-edges. The run ends when that node finishes — there is no long-running
-process, no cron backstop, and no persisted checkpoint between runs: GitHub's
-own labels/comments are the durable state, by design (see the state-model
-decision in `src/agents/state.ts`).
+Each run re-reads the issue's live `status:*` label and enters the matching
+stage; hand-offs between stages chain in the same process. GitHub's labels
+and comment markers are the durable state (see `src/agents/state.ts`).
 
-Required repo secrets: `ANTHROPIC_API_KEY` (a real Anthropic Console key —
-distinct from any local Claude Code login), `LANGCHAIN_API_KEY`, and
-`TECH_LEAD_GH_TOKEN` (the same tech-lead bot-identity token this repo's
-`.claude/agents/tech-lead.md` already documents setting up — reuse it here,
-no separate bot account needed).
+Models are served by OmniRoute combos (free tiers first, DeepSeek last), with
+direct DeepSeek as the fallback. OmniRoute and claude-mem run on the VPS. Setup
+and the required secrets are in [docs/agentic-pipeline-vps.md](docs/agentic-pipeline-vps.md).
+The skills the stages use live in `.claude/skills/`, shared with local Claude
+Code sessions.
 
-### Running LangGraph Studio locally
-
-Studio is a **local visualization/debugging tool only** — it never runs in
-production; the workflow above always goes through `scripts/trigger.ts`.
+### Running locally
 
 ```bash
-# 1. Install deps (root-level project, separate from medusa/ and storefront/)
-npm install
-
-# 2. Copy the LangGraph section of .env.example into your local .env and fill
-#    in ANTHROPIC_API_KEY / LANGCHAIN_API_KEY / TECH_LEAD_GH_TOKEN. `gh auth
-#    login` must also be active locally, since the nodes shell out to the gh
-#    CLI directly.
-
-# 3. Launch Studio
-npm run studio
-# -> opens a local LangGraph Studio session showing all 4 routable nodes
-#    (ui_designer, dev_loop, quality_analyst, tech_lead) and their
-#    conditional edges. Invoke it with { issueNumber, currentLabel } against
-#    a real (ideally low-stakes) open issue in this repo to trace a live run.
+npm install                        # root-level project, separate from medusa/ and storefront/
+npm test && npm run typecheck      # unit tests for the gating logic
+npm run jev-review -- --issue <n>  # dry-run Jev on an issue with a locked spec + open PR
+npm run studio                     # LangGraph Studio — local visualization/debugging only
 ```
 
-### Known limitation
-
-The workflow only subscribes to `issues`/`issue_comment` events, not
-`check_suite`/`workflow_run` completion. If `quality_analyst` or `tech_lead`
-finds a PR's CI still pending, the run ends without retrying automatically —
-unlike the old 3-minute poll, there's no built-in "come back in a few minutes"
-here yet. A future addition would be a `check_suite: [completed]` trigger
-(or a webhook filtered to the PR's own checks) re-invoking `trigger.ts` for
-the linked issue once CI actually finishes.
+Copy the agentic-SDLC section of `.env.example` into `.env`. `gh auth login`
+must be active, because the stages shell out to the `gh` CLI.

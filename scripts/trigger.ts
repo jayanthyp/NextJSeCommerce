@@ -10,7 +10,7 @@
  * the source of truth" state model (see state.ts / the migration plan).
  * --event/--action are accepted for logging only.
  */
-import { graph } from "../src/agents/graph.js";
+import { graph, RECURSION_LIMIT } from "../src/agents/graph.js";
 import { ghIssueView, ghIssueEdit, ghIssueComment } from "../src/agents/tools.js";
 
 function parseArgs(argv: string[]): { issue: number; event: string; action: string; label?: string } {
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
   try {
     const result = await graph.invoke(
       { issueNumber: issue, currentLabel: statusLabel },
-      { configurable: { thread_id: String(issue) } }
+      { configurable: { thread_id: String(issue) }, recursionLimit: RECURSION_LIMIT }
     );
     console.log(`[trigger] run complete. Final currentLabel=${result.currentLabel}`);
   } catch (err) {
@@ -93,7 +93,7 @@ async function escalateCrashToTechLead(issue: number, failedLabel: string, err: 
     // GITHUB_TOKEN's own label edit above won't re-trigger the workflow.
     await graph.invoke(
       { issueNumber: issue, currentLabel: "status:blocked" },
-      { configurable: { thread_id: String(issue) } }
+      { configurable: { thread_id: String(issue) }, recursionLimit: RECURSION_LIMIT }
     );
   } catch (techLeadErr) {
     console.error(`[trigger] tech-lead crash-escalation review itself failed for issue #${issue}:`, techLeadErr);

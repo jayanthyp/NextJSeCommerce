@@ -10,7 +10,8 @@
  * don't re-trigger workflows, so a relabel alone would never re-fire the
  * pipeline).
  */
-import { graph } from "../src/agents/graph.js";
+import { LABEL } from "../src/agents/config.js";
+import { graph, RECURSION_LIMIT } from "../src/agents/graph.js";
 import { ghIssueList, ghIssueView, ghIssueEdit, ghIssueComment } from "../src/agents/tools.js";
 
 // How long an issue may sit in a transient label before we deem it orphaned.
@@ -19,12 +20,21 @@ import { ghIssueList, ghIssueView, ghIssueEdit, ghIssueComment } from "../src/ag
 const STUCK_MS = 45 * 60_000;
 
 // transient label -> the entry label that re-routes it back into the graph.
+// Every stage is safe to re-run from its entry label: Grill-me and Design
+// re-read the thread, the build re-checks for a locked spec / open PR, and
+// Ship re-verifies the head-SHA-pinned verdicts before deploying anything.
+// This is also how a Jev outage (review left in jev-review-in-progress)
+// gets retried.
 const RECOVERY: Record<string, string> = {
-  "status:in-progress": "status:ready-for-dev",
-  "status:qa-in-progress": "status:ready-for-qa",
-  "status:deploying": "status:in-review",
-  "status:tech-lead-review-in-progress": "status:in-review",
-  "status:ui-requirement-refinement-in-progress": "status:ready-for-ui-work",
+  [LABEL.grilling]: LABEL.readyForDev,
+  [LABEL.designing]: LABEL.readyForDev,
+  [LABEL.inProgress]: LABEL.readyForDev,
+  [LABEL.jevReview]: LABEL.inReview,
+  [LABEL.qaInProgress]: LABEL.readyForQa,
+  [LABEL.deploying]: LABEL.readyToShip,
+  // pre-restructure transient labels still on old issues
+  "status:tech-lead-review-in-progress": LABEL.inReview,
+  "status:ui-requirement-refinement-in-progress": LABEL.readyForDev,
 };
 
 interface ListedIssue {
@@ -68,7 +78,7 @@ async function main(): Promise<void> {
       console.log(`[recover] re-running graph for #${issue.number} (label=${statusLabel})`);
       await graph.invoke(
         { issueNumber: issue.number, currentLabel: statusLabel },
-        { configurable: { thread_id: String(issue.number) } }
+        { configurable: { thread_id: String(issue.number) }, recursionLimit: RECURSION_LIMIT }
       );
     } catch (err) {
       console.error(`[recover] failed to recover #${issue.number}:`, err);

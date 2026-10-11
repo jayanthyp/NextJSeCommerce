@@ -3,20 +3,24 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "LangGraph.js event-driven orchestrator for the NextJSeCommerce agentic SDLC (business-analyst / ui-designer / dev-loop / quality-analyst / tech-lead), triggered by GitHub issue/label/comment webhooks via .github/workflows/langgraph-agent.yml instead of polling.",
+  "description": "LangGraph.js orchestrator for the NextJSeCommerce 7-stage agentic SDLC (claude-mem ingest -> Grill-me -> locked spec -> parallel subagents -> Jev review -> Playwright E2E -> gated ship), triggered by GitHub webhooks via .github/workflows/langgraph-agent.yml.",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "trigger": "tsx scripts/trigger.ts",
+    "jev-review": "tsx scripts/jev-review.ts",
+    "ensure-labels": "tsx scripts/ensure-labels.ts",
+    "test": "tsx --test src/agents/pipeline.test.ts",
     "typecheck": "tsc --noEmit",
     "studio": "langgraph dev"
   },
   "dependencies": {
-    "@langchain/anthropic": "^1.5.5",
+    "@anthropic-ai/sdk": "^0.133.0",
     "@langchain/core": "^1.2.6",
     "@langchain/langgraph": "^1.4.9",
-    "zod": "^3.24.1"
+    "langsmith": "^0.8.12",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@langchain/langgraph-cli": "^1.4.4",

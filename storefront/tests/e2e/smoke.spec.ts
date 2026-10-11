@@ -4,8 +4,8 @@ import { CartPage } from "./pages/cart-page"
 import { COUNTRY_CODE, PRODUCT_HANDLE } from "./fixtures/test-data"
 
 /**
- * QA baseline smoke suite — the tiny, always-run floor for the change-scoped QA
- * node (see src/agents/nodes.ts qualityAnalystNode). These three tests assert
+ * QA baseline smoke suite — the tiny, always-run floor for the pipeline's
+ * change-scoped E2E stage (see src/agents/stages/e2e.ts). These three tests assert
  * only the "does the app build, render, and sell" core, so any failure here is
  * a genuine core-UI break, never an unrelated regression. The full feature
  * regression suite runs separately (a scheduled non-prod run), not in the

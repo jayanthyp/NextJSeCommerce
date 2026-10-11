@@ -21,8 +21,8 @@
 
 services:
   # Host ports are overridable (LOCAL_*_PORT, defaulting to the values below)
-  # so a second stack — e.g. the quality-analyst agent's isolated
-  # `-p qa-issue-<n>` project — can run alongside a human's already-running
+  # so a second isolated stack (e.g. a separate `-p qa-issue-<n>` compose
+  # project) can run alongside a human's already-running
   # default stack without a port collision. The container-side ports never
   # change, so nothing inside the stack cares. Note: if you override
   # LOCAL_BACKEND_PORT, also update NEXT_PUBLIC_MEDUSA_BACKEND_URL and

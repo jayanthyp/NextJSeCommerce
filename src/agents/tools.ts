@@ -5,10 +5,10 @@
  * issue/PR content can never inject extra flags — the same discipline
  * scripts/tech-lead-*.sh already follow).
  *
- * Every node in nodes.ts goes through these instead of calling execFile
+ * Every stage in stages/ goes through these instead of calling execFile
  * directly, and instead of asking an LLM to write bash — per the Tool-First
- * principle, the LLM is only ever invoked for reasoning (see nodes.ts),
- * never for shelling out.
+ * principle, a model is only ever invoked for reasoning (see llm.ts), never
+ * for shelling out.
  */
 import { execFile as execFileCb, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -28,7 +28,7 @@ const REPO = "jayanthyp/NextJSeCommerce";
  * Runs a command via argv (no shell), returning stdout/stderr/exitCode
  * regardless of exit status — callers decide what a non-zero exit means
  * (e.g. `gh pr checks` exits non-zero when a check merely hasn't finished
- * yet, which is not an error condition for quality-analyst/tech-lead).
+ * yet, which is not an error condition for the E2E / Ship stages).
  */
 async function run(
   cmd: string,
@@ -121,13 +121,10 @@ export async function ghIssueComment(issueNumber: number, body: string): Promise
   );
 }
 
-export async function ghIssueCreate(title: string, body: string, label: string): Promise<number> {
-  const r = await run("gh", ["issue", "create", "--repo", REPO, "--title", title, "--body", body, "--label", label]);
-  assertOk(r, "gh issue create");
-  // gh prints the new issue URL; the trailing path segment is the number.
-  const match = r.stdout.trim().match(/\/(\d+)\s*$/);
-  if (!match) throw new Error(`Could not parse issue number from: ${r.stdout}`);
-  return Number(match[1]);
+/** Moves an issue between status labels in one edit. `from` labels that aren't on the issue are harmless. */
+export async function relabel(issueNumber: number, from: string | string[], to: string): Promise<void> {
+  const remove = (Array.isArray(from) ? from : [from]).filter((l) => l && l !== to);
+  await ghIssueEdit(issueNumber, { addLabel: to, ...(remove.length ? { removeLabel: remove.join(",") } : {}) });
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +154,34 @@ export async function ghPrListClosingIssue(
   state: "open" | "all" = "open"
 ): Promise<unknown[]> {
   return ghPrList(`"Closes #${issueNumber}" in:body`, fields, state);
+}
+
+export interface OpenPr {
+  number: number;
+  headRefName: string;
+  url: string;
+}
+
+/** The open PR whose body really says "Closes #<n>" (search hits are re-verified — see ghPrListClosingIssue). */
+export async function findOpenPr(issueNumber: number): Promise<OpenPr | null> {
+  const closesRe = new RegExp(`closes\\s+#${issueNumber}\\b`, "i");
+  const prs = (await ghPrListClosingIssue(issueNumber, "number,headRefName,url,body")) as (OpenPr & { body: string })[];
+  const pr = prs.find((p) => closesRe.test(p.body));
+  return pr ? { number: pr.number, headRefName: pr.headRefName, url: pr.url } : null;
+}
+
+/** The commit a PR currently points at — verdicts are pinned to it so a later push invalidates them. */
+export async function ghPrHeadSha(prNumber: number): Promise<string> {
+  const r = await run("gh", ["pr", "view", String(prNumber), "--repo", REPO, "--json", "headRefOid", "--jq", ".headRefOid"]);
+  assertOk(r, `gh pr view #${prNumber} --json headRefOid`);
+  return r.stdout.trim();
+}
+
+/** The merge commit of a merged PR — what a post-merge rollback must revert. */
+export async function ghPrMergeCommit(prNumber: number): Promise<string> {
+  const r = await run("gh", ["pr", "view", String(prNumber), "--repo", REPO, "--json", "mergeCommit", "--jq", ".mergeCommit.oid"]);
+  assertOk(r, `gh pr view #${prNumber} --json mergeCommit`);
+  return r.stdout.trim();
 }
 
 export async function ghPrDiff(prNumber: number): Promise<string> {
@@ -364,9 +389,9 @@ export async function gitDiffSummary(): Promise<{ files: number; lines: number }
     files += 1;
     lines += (parseInt(added, 10) || 0) + (parseInt(removed, 10) || 0);
   }
-  // New (untracked) files — e.g. an E2E spec dev-loop just authored — aren't in
-  // `git diff --numstat`. Count them separately so a file-creation edit isn't
-  // misread as a no-op by devLoopNode's scope guard.
+  // New (untracked) files — e.g. a file a subagent just created — aren't in
+  // `git diff --numstat`. Count them separately so the build stage's
+  // diff-size gate sees them.
   const untracked = await run("git", ["ls-files", "--others", "--exclude-standard"]);
   for (const path of untracked.stdout.split("\n").map((s) => s.trim()).filter(Boolean)) {
     try {
@@ -382,6 +407,43 @@ export async function gitDiffSummary(): Promise<{ files: number; lines: number }
 /** Discard tracked working-tree changes (so a retry starts from a clean tree). */
 export async function gitDiscardChanges(): Promise<void> {
   await run("git", ["checkout", "--", "."]);
+}
+
+/** Restore specific tracked paths to their HEAD content. */
+export async function gitRestoreFromHead(paths: string[]): Promise<void> {
+  if (paths.length) assertOk(await run("git", ["checkout", "HEAD", "--", ...paths]), "git checkout HEAD -- <paths>");
+}
+
+/** Paths changed vs HEAD: tracked modifications plus new untracked files. */
+export async function gitChangedPaths(): Promise<string[]> {
+  const tracked = await run("git", ["diff", "--name-only", "HEAD"]);
+  const untracked = await run("git", ["ls-files", "--others", "--exclude-standard"]);
+  return [...new Set(`${tracked.stdout}\n${untracked.stdout}`.split("\n").map((s) => s.trim()).filter(Boolean))];
+}
+
+/** Fetches `origin/<branch>`; false when the branch doesn't exist on the remote. */
+export async function gitFetchBranch(branch: string): Promise<boolean> {
+  return (await run("git", ["fetch", "origin", branch])).exitCode === 0;
+}
+
+/** A file's content at `ref` (e.g. "origin/feature/x"), or null if absent. */
+export async function gitShowFile(ref: string, path: string): Promise<string | null> {
+  const r = await run("git", ["show", `${ref}:${path}`]);
+  return r.exitCode === 0 ? r.stdout : null;
+}
+
+/**
+ * Switches to `branch`: its remote tip if it exists (a resumed issue keeps
+ * its commits — never reset, since pushes are never forced), else a fresh
+ * branch from origin/main.
+ */
+export async function gitCheckoutWorkBranch(branch: string): Promise<void> {
+  if (await gitFetchBranch(branch)) {
+    await gitCheckout(branch, { create: true, startPoint: `origin/${branch}` });
+  } else {
+    assertOk(await run("git", ["fetch", "origin", "main"]), "git fetch origin main");
+    await gitCheckout(branch, { create: true, startPoint: "origin/main" });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -425,13 +487,13 @@ export async function runTechLeadRollback(mergeSha: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function runNpmScript(cwd: "medusa" | "storefront", script: string): Promise<RunResult> {
-  // Not assertOk'd — devLoopNode needs the failure output to feed back to the LLM,
+  // Not assertOk'd — the build stage needs the failure output to feed back to the LLM,
   // not just an exception.
   return run("npm", ["run", script], { cwd });
 }
 
 // ---------------------------------------------------------------------------
-// Playwright (quality-analyst's zero-LLM native execution)
+// Playwright (the E2E stage's zero-LLM native execution)
 // ---------------------------------------------------------------------------
 
 export async function runPlaywright(baseUrl: string, projects: string[], specs?: string[]): Promise<RunResult> {
@@ -450,10 +512,8 @@ export async function runPlaywright(baseUrl: string, projects: string[], specs?:
 }
 
 // ---------------------------------------------------------------------------
-// docker compose (quality-analyst's isolated stack — default ports; the
-// worktree + port-offset scheme in quality-analyst.md exists to avoid
-// colliding with a human's locally-running stack, which doesn't apply on a
-// fresh single-purpose GitHub-hosted runner)
+// docker compose (the E2E stage's isolated stack — default ports: a fresh
+// single-purpose GitHub-hosted runner has no human stack to collide with)
 // ---------------------------------------------------------------------------
 
 const COMPOSE_ARGS = ["-f", "docker-compose.yml", "-f", "docker-compose.local.yml"];
@@ -538,7 +598,7 @@ export async function dockerComposeRebuildStorefront(): Promise<void> {
 // Shared comment/report formatters (canonical schemas, defined once)
 // ---------------------------------------------------------------------------
 
-/** The 📌/🔘/✍️ blocking-comment schema, defined verbatim in dev-loop.md and reused as-is by quality-analyst.md and tech-lead.md. */
+/** The 📌/🔘/✍️ blocking-comment schema every stage uses when it needs a human. */
 export function formatBlockingComment(reason: string, options: string[], header?: string): string {
   const optionLines = options.map((opt, i) => `🔘 **Option ${i + 1}:** ${opt}`).join("\n\n");
   const body = [
@@ -562,7 +622,7 @@ export interface QaReportInput {
   failureDetails?: string;
 }
 
-/** quality-analyst.md's QA report template, ported verbatim. */
+/** The E2E stage's QA report template. */
 export function formatQaReport(input: QaReportInput): string {
   const status = input.passed ? "PASS 🟢" : "FAIL 🔴";
   const lines = [

@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
 #  tech-lead-rollback-revert.sh — revert a bad merge commit on `main` and
-#  push the revert, invoked by .claude/agents/tech-lead.md's Workflow 3 only
-#  when a post-merge VPS deploy or smoke test fails. This is a `git revert`
-#  (a new commit undoing the change) — never a `reset --hard` or
-#  force-push — specifically so it's safe to allow-list narrowly.
+#  push the revert, invoked by the agentic pipeline's Ship stage
+#  (src/agents/stages/ship.ts) only when a post-merge VPS deploy or smoke
+#  test fails. This is a `git revert` (a new commit undoing the change) —
+#  never a `reset --hard` or force-push.
 #
 #  `.claude/settings.json` keeps a hard `deny` on `git push*origin main*`
 #  (mirroring CLAUDE.md's "never push to main" rule). This script is the one
-#  narrow, allow-listed exception: it only ever runs `git revert -m 1
-#  <sha> --no-edit` followed by a plain `git push origin main` — no force
-#  flag is reachable from the outside, so the allow rule for *this exact
-#  script* can't be walked into `--force`/`-f` the way a broad
-#  `Bash(git push*origin main*)` allow rule could.
+#  narrow exception: it only ever runs `git revert -m 1 <sha> --no-edit`
+#  followed by a plain `git push origin main` — no force flag is reachable
+#  from the outside.
 #
 #  Usage: tech-lead-rollback-revert.sh <merge-sha>
 # =============================================================================

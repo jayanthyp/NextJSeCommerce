@@ -135,7 +135,7 @@ jobs:
   # storefront-e2e (Playwright) is disabled in CI (see test.yml's `if: false`
   # on that job, per owner decision 2026-08-10), so it neither runs as part of
   # this call nor gates `deploy`. Playwright e2e now runs via the
-  # quality-analyst agent against each PR's branch in an isolated local stack.
+  # agentic pipeline's E2E stage against each PR's branch in an isolated stack.
   test:
     uses: ./.github/workflows/test.yml
 

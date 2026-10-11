@@ -31,10 +31,9 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Claude Code session state, not project source — except the dev-loop and
-# agent configs, which are project automation, not personal/session state.
+# Claude Code session state, not project source — except the project skills
+# (shared by local sessions and the LangGraph pipeline) and the permission
+# settings, which are project automation, not personal/session state.
 .claude/*
-!.claude/commands/
-!.claude/commands/dev-loop.md
-!.claude/agents/
+!.claude/skills/
 !.claude/settings.json
